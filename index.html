@@ -7,17 +7,24 @@
       name="description"
       content="테니스 정기모임 복식 대진표 자동 생성기 — 참석자 이름만 넣으면 코트별로 골고루 배정해 줍니다."
     />
-    <title>🎾 테니스 복식 대진표 만들기</title>
+    <title>테니스 복식 대진표 만들기</title>
     <link
       rel="icon"
-      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8E%BE%3C/text%3E%3C/svg%3E"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230071e3' stroke-width='2'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M5.6 5.6a9 9 0 0 0 0 12.8'/%3E%3Cpath d='M18.4 5.6a9 9 0 0 1 0 12.8'/%3E%3C/svg%3E"
     />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <div class="app">
       <header class="hero">
-        <h1>🎾 테니스 복식 대진표</h1>
+        <h1>
+          <svg class="logo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M5.6 5.6a9 9 0 0 0 0 12.8" />
+            <path d="M18.4 5.6a9 9 0 0 1 0 12.8" />
+          </svg>
+          테니스 복식 대진표
+        </h1>
         <p class="subtitle">
           참석자 이름만 넣으면 코트별로 <strong>골고루</strong> 게임을 배정해 드려요.
         </p>
@@ -25,8 +32,9 @@
 
       <main>
         <!-- 입력 -->
+        <!-- 1. 참석자 입력 -->
         <section class="card" id="input-card">
-          <h2>1. 참석자 입력</h2>
+          <h2><span class="step-no">1</span> 참석자 입력</h2>
 
           <label class="field">
             <span class="field-label">참석자 이름 <em id="name-count">(0명)</em></span>
@@ -36,6 +44,11 @@
               placeholder="한 줄에 한 명씩, 또는 쉼표로 구분해서 입력하세요.&#10;예)&#10;김테니&#10;이라켓&#10;박발리&#10;최스핀"
             ></textarea>
           </label>
+        </section>
+
+        <!-- 2. 경기 세팅 -->
+        <section class="card" id="setting-card">
+          <h2><span class="step-no">2</span> 경기 세팅</h2>
 
           <div class="grid">
             <label class="field">
@@ -81,31 +94,50 @@
           </div>
 
           <p class="hint" id="plan-hint"></p>
-
-          <div class="actions">
-            <button type="button" id="generate" class="btn btn-primary">대진표 만들기</button>
-            <button type="button" id="reshuffle" class="btn btn-ghost" hidden>🔀 다시 섞기</button>
-          </div>
-          <p class="error" id="error" hidden></p>
         </section>
 
-        <!-- 결과 -->
+        <!-- 3. 대진표 만들기 -->
+        <div class="actions">
+          <button type="button" id="generate" class="btn btn-primary">
+            <span class="step-no light">3</span> 대진표 만들기
+          </button>
+          <button type="button" id="reshuffle" class="btn btn-ghost" hidden>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M16 3h5v5" /><path d="M4 20 21 3" /><path d="M21 16v5h-5" /><path d="M15 15l6 6" /><path d="M4 4l5 5" />
+            </svg>
+            다시 섞기
+          </button>
+        </div>
+        <p class="error" id="error" hidden></p>
+
+        <!-- 4·5. 결과 -->
         <section id="result" hidden>
           <div class="card summary-card">
             <div class="summary-head">
               <h2>대진표</h2>
               <div class="summary-actions">
-                <button type="button" id="copy" class="btn btn-small">📋 복사</button>
-                <button type="button" id="print" class="btn btn-small">🖨️ 인쇄</button>
+                <button type="button" id="copy" class="btn btn-small">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h10" />
+                  </svg>
+                  복사
+                </button>
+                <button type="button" id="print" class="btn btn-small">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M6 9V3h12v6" /><path d="M6 18H4a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2" /><rect x="6" y="14" width="12" height="7" rx="1" />
+                  </svg>
+                  인쇄
+                </button>
               </div>
             </div>
             <p class="meta" id="result-meta"></p>
           </div>
 
+          <h2 class="section-title"><span class="step-no">4</span> 라운드</h2>
           <div id="rounds-list"></div>
 
           <div class="card">
-            <h3>참석자별 경기 수</h3>
+            <h2><span class="step-no">5</span> 참석자별 경기 수</h2>
             <div id="player-summary" class="player-summary"></div>
           </div>
         </section>

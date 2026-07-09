@@ -23,6 +23,7 @@
   "use strict";
 
   var COURT_SIZE = 4; // 복식: 코트당 4명
+  var SINGLES_SIZE = 2; // 단식: 코트당 2명
 
   // 결정적(시드 기반) 난수 생성기 — 같은 입력이면 같은 대진표가 나오도록.
   function makeRng(seed) {
@@ -78,15 +79,28 @@
     }
 
     var rng = makeRng(seed);
+    var wSingles = 2; // 단식 배정 반복 억제 가중치
 
-    // 한 라운드에 실제 사용할 코트 수 (인원이 부족하면 줄인다)
-    var usableCourts = Math.min(courts, Math.floor(N / COURT_SIZE));
-    var slots = usableCourts * COURT_SIZE; // 매 라운드 뛰는 인원
-    var restPerRound = N - slots;
+    // 코트 구성: 복식(4명) 우선으로 채우고, 코트가 남고 인원도 남으면
+    // 나머지를 단식(2명, 1:1) 코트로 배정한다.
+    // 예) 4코트·14명 → 복식 3코트(12명) + 단식 1코트(2명), 휴식 0명
+    var doublesCourts = Math.min(courts, Math.floor(N / COURT_SIZE));
+    var remPlayers = N - COURT_SIZE * doublesCourts; // 복식 후 남는 인원
+    var remCourts = courts - doublesCourts; // 남는 코트
+    var singlesCourts = remPlayers >= SINGLES_SIZE && remCourts >= 1 ? 1 : 0;
+    var usableCourts = doublesCourts + singlesCourts;
+    var seatsPerRound = COURT_SIZE * doublesCourts + SINGLES_SIZE * singlesCourts;
+    var restPerRound = N - seatsPerRound; // 매 라운드 휴식 인원
+
+    // 코트 크기 목록 (복식 4 … 단식 2) — 매 라운드 동일
+    var courtSizes = [];
+    for (var dc = 0; dc < doublesCourts; dc++) courtSizes.push(COURT_SIZE);
+    for (var sc = 0; sc < singlesCourts; sc++) courtSizes.push(SINGLES_SIZE);
 
     // 상태 추적 (인덱스 기반)
     var games = new Array(N).fill(0); // 경기 수
     var rests = new Array(N).fill(0); // 휴식 수
+    var singlesPlayed = new Array(N).fill(0); // 단식 경기 수
     var partner = {}; // key -> 함께 팀한 횟수
     var opponent = {}; // key -> 상대로 만난 횟수
 
@@ -124,24 +138,25 @@
       }
 
       // 2) 뛰는 인원을 코트에 배정 (파트너/상대 반복 최소화)
-      var best = assignCourts(playing, usableCourts);
+      var best = assignCourts(playing, courtSizes);
 
       // 3) 상태 갱신
       best.forEach(function (court) {
         var t1 = court.team1;
         var t2 = court.team2;
-        // 파트너
-        partner[key(t1[0], t1[1])] = partnerCount(t1[0], t1[1]) + 1;
-        partner[key(t2[0], t2[1])] = partnerCount(t2[0], t2[1]) + 1;
+        // 파트너 (복식일 때만 — 팀이 2명)
+        if (t1.length === 2) partner[key(t1[0], t1[1])] = partnerCount(t1[0], t1[1]) + 1;
+        if (t2.length === 2) partner[key(t2[0], t2[1])] = partnerCount(t2[0], t2[1]) + 1;
         // 상대 (팀1 x 팀2 전부)
         t1.forEach(function (a) {
           t2.forEach(function (b) {
             opponent[key(a, b)] = opponentCount(a, b) + 1;
           });
         });
-        // 경기 수
+        // 경기 수 / 단식 수
         t1.concat(t2).forEach(function (x) {
           games[x] += 1;
+          if (court.type === "singles") singlesPlayed[x] += 1;
         });
       });
       resting.forEach(function (x) {
@@ -153,6 +168,7 @@
         courts: best.map(function (court, ci) {
           return {
             court: ci + 1,
+            type: court.type, // "doubles" | "singles"
             team1: court.team1.map(nameOf),
             team2: court.team2.map(nameOf),
           };
@@ -162,7 +178,8 @@
     }
 
     // 코트 배정: 랜덤 재시작 그리디로 비용이 가장 낮은 배정을 찾는다.
-    function assignCourts(playing, nCourts) {
+    // sizes: 각 코트 인원 목록 (예: [4,4,4,2] → 복식 3 + 단식 1)
+    function assignCourts(playing, sizes) {
       var attempts = 240;
       var bestCourts = null;
       var bestCost = Infinity;
@@ -170,11 +187,21 @@
         var shuffled = shuffle(playing, rng);
         var courtsArr = [];
         var cost = 0;
-        for (var c = 0; c < nCourts; c++) {
-          var four = shuffled.slice(c * COURT_SIZE, c * COURT_SIZE + COURT_SIZE);
-          var split = bestSplit(four);
-          cost += split.cost;
-          courtsArr.push({ team1: split.team1, team2: split.team2 });
+        var idx = 0;
+        for (var c = 0; c < sizes.length; c++) {
+          var sz = sizes[c];
+          var group = shuffled.slice(idx, idx + sz);
+          idx += sz;
+          if (sz === COURT_SIZE) {
+            var split = bestSplit(group);
+            cost += split.cost;
+            courtsArr.push({ type: "doubles", team1: split.team1, team2: split.team2 });
+          } else {
+            // 단식: 상대 반복 + 단식 편중을 비용에 반영
+            cost += wOpp * opponentCount(group[0], group[1]);
+            cost += wSingles * (singlesPlayed[group[0]] + singlesPlayed[group[1]]);
+            courtsArr.push({ type: "singles", team1: [group[0]], team2: [group[1]] });
+          }
         }
         if (cost < bestCost) {
           bestCost = cost;
@@ -222,7 +249,7 @@
 
     // 참석자별 요약
     var summary = names.map(function (name, i) {
-      return { name: name, games: games[i], rests: rests[i] };
+      return { name: name, games: games[i], rests: rests[i], singles: singlesPlayed[i] };
     });
 
     var gameCounts = summary.map(function (s) {
@@ -236,6 +263,8 @@
         players: N,
         courts: courts,
         usableCourts: usableCourts,
+        doublesCourts: doublesCourts,
+        singlesCourts: singlesCourts,
         rounds: rounds,
         restPerRound: restPerRound,
         minGames: Math.min.apply(null, gameCounts),

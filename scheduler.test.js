@@ -29,6 +29,7 @@ function analyze(label, opts) {
     rd.courts.forEach(function (ct) {
       var pairs = [ct.team1, ct.team2];
       pairs.forEach(function (t) {
+        if (t.length < 2) return; // 단식 팀(1명)은 파트너 없음
         var k = [t[0], t[1]].sort().join("|");
         if (seenP[k]) repeatPartners++;
         seenP[k] = (seenP[k] || 0) + 1;
@@ -106,6 +107,46 @@ analyze("소규모(6명/1코트)", {
   courts: 1,
   rounds: 2,
 });
+
+// 단식 자동 배정: 4코트, 14명 → 복식 3 + 단식 1, 휴식 0
+(function () {
+  var res = analyze("복식+단식(14명/4코트)", {
+    players: Array.from({ length: 14 }, function (_, i) { return "P" + (i + 1); }),
+    courts: 4,
+    rounds: 5,
+  });
+  assert(res.meta.doublesCourts === 3, "14명/4코트 → 복식 3코트 (실제 " + res.meta.doublesCourts + ")");
+  assert(res.meta.singlesCourts === 1, "14명/4코트 → 단식 1코트 (실제 " + res.meta.singlesCourts + ")");
+  assert(res.meta.restPerRound === 0, "14명/4코트 → 휴식 0명 (실제 " + res.meta.restPerRound + ")");
+  var ok = res.rounds.every(function (rd) {
+    var singles = rd.courts.filter(function (c) { return c.type === "singles"; });
+    return singles.length === 1 && singles[0].team1.length === 1 && singles[0].team2.length === 1;
+  });
+  assert(ok, "매 라운드 단식 코트 1개(1:1) 존재");
+  var sc = res.summary.map(function (s) { return s.singles; });
+  var singlesSpread = Math.max.apply(null, sc) - Math.min.apply(null, sc);
+  assert(singlesSpread <= 2, "단식 배정 편차 <= 2 (실제 " + singlesSpread + ")");
+})();
+
+// 코트 남아도 인원 딱 맞으면 단식 없음: 16명, 4코트
+(function () {
+  var res = Scheduler.generate({
+    players: Array.from({ length: 16 }, function (_, i) { return "P" + (i + 1); }),
+    courts: 4, rounds: 3,
+  });
+  assert(res.meta.singlesCourts === 0, "16명/4코트 → 단식 없음");
+  assert(res.meta.doublesCourts === 4, "16명/4코트 → 복식 4코트");
+})();
+
+// 코트 부족하면 단식 없이 휴식: 14명, 3코트
+(function () {
+  var res = Scheduler.generate({
+    players: Array.from({ length: 14 }, function (_, i) { return "P" + (i + 1); }),
+    courts: 3, rounds: 3,
+  });
+  assert(res.meta.singlesCourts === 0, "14명/3코트 → 코트 여유 없어 단식 없음");
+  assert(res.meta.restPerRound === 2, "14명/3코트 → 휴식 2명");
+})();
 
 // 최소 인원 미달 시 에러
 try {

@@ -27,6 +27,12 @@
     toast: $("toast"),
   };
 
+  // 휴식 표시용 인라인 SVG (이모지 대신 아이콘 사용)
+  var MOON_SVG =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
+    'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"/></svg> ';
+
   var STORAGE_KEY = "tennis-grouping-v2";
   var state = {
     customMode: false, // 라운드 직접 지정 여부
@@ -88,8 +94,6 @@
     var gm = parseInt(el.gameMinutes.value, 10) || 30;
     var dur = durationMinutes();
     var rounds = computeRounds();
-    var perRound = Math.min(courts, Math.floor(players.length / 4)) * 4;
-    var rest = Math.max(0, players.length - perRound);
 
     if (dur == null) {
       el.planHint.textContent = "시작/종료 시간을 확인해 주세요.";
@@ -97,20 +101,19 @@
       return;
     }
     if (players.length < 4) {
-      el.planHint.textContent =
-        "모임 " + (dur / 60).toFixed(dur % 60 ? 1 : 0) + "시간 · 복식 경기는 최소 4명부터 가능해요.";
+      el.planHint.textContent = "복식 경기는 최소 4명부터 가능해요.";
       persist();
       return;
     }
 
-    var msg = "모임 " + fmtDuration(dur) + " · 총 " + rounds + "라운드 · 라운드당 " + perRound + "명 경기";
-    if (rest > 0) msg += " · " + rest + "명 휴식";
-    if (perRound < courts * 4) {
-      msg += " (인원이 부족해 " + Math.floor(players.length / 4) + "코트만 사용)";
-    }
+    var plan = planLayout(players.length, courts);
+    var msg =
+      "모임 " + fmtDuration(dur) + " · 총 " + rounds + "라운드 · " +
+      courtLayoutText(plan) + " · 라운드당 " + plan.seated + "명 경기";
+    if (plan.rest > 0) msg += " · " + plan.rest + "명 휴식";
     // 라운드 총 소요시간이 모임 시간을 넘는지 안내
     if (rounds * gm > dur) {
-      msg += " ⚠️ 경기 시간이 모임 시간을 초과해요";
+      msg += " · 경기 시간이 모임 시간을 초과해요";
     }
     el.planHint.textContent = msg;
     persist();
@@ -122,6 +125,30 @@
     if (h && m) return h + "시간 " + m + "분";
     if (h) return h + "시간";
     return m + "분";
+  }
+
+  // 복식/단식 코트 구성 텍스트 (예: "복식 3코트+단식 1코트")
+  function courtLayoutText(layout) {
+    var parts = [];
+    if (layout.doublesCourts) parts.push("복식 " + layout.doublesCourts + "코트");
+    if (layout.singlesCourts) parts.push("단식 " + layout.singlesCourts + "코트");
+    return parts.length ? parts.join("+") : layout.usableCourts + "코트";
+  }
+
+  // 참석자 수·코트 수로부터 복식/단식 구성을 미리 계산 (스케줄러와 동일 규칙)
+  function planLayout(players, courts) {
+    var d = Math.min(courts, Math.floor(players / 4));
+    var rem = players - 4 * d;
+    var remC = courts - d;
+    var s = rem >= 2 && remC >= 1 ? 1 : 0;
+    var seated = 4 * d + 2 * s;
+    return {
+      doublesCourts: d,
+      singlesCourts: s,
+      usableCourts: d + s,
+      seated: seated,
+      rest: players - seated,
+    };
   }
 
   // ---- localStorage ----
@@ -163,7 +190,8 @@
   }
 
   // ---- 대진표 생성 ----
-  function generate(reshuffle) {
+  // reshuffle: 새 시드로 다시 섞기 / silent: 스크롤 이동 없이 조용히 갱신
+  function generate(reshuffle, silent) {
     el.error.hidden = true;
     var players = parsePlayers();
 
@@ -213,7 +241,7 @@
     render(res, gameMinutes, startMin);
     el.reshuffle.hidden = false;
     el.result.hidden = false;
-    if (!reshuffle) {
+    if (!reshuffle && !silent) {
       el.result.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   }
@@ -231,7 +259,7 @@
         ? "모두 " + m.minGames + "경기씩"
         : m.minGames + "~" + m.maxGames + "경기";
     el.resultMeta.textContent =
-      m.players + "명 · " + m.usableCourts + "코트 · " + m.rounds + "라운드 · 1인당 " +
+      m.players + "명 · " + courtLayoutText(m) + " · " + m.rounds + "라운드 · 1인당 " +
       balance + (m.restPerRound > 0 ? " · 라운드당 " + m.restPerRound + "명 휴식" : "");
 
     el.roundsBox.innerHTML = "";
@@ -244,9 +272,13 @@
 
       var courtsHtml = rd.courts
         .map(function (ct) {
+          var isSingles = ct.type === "singles";
+          var badge = isSingles
+            ? '<span class="ctype singles">단식</span>'
+            : '<span class="ctype doubles">복식</span>';
           return (
-            '<div class="court">' +
-            '<div class="court-title">코트 ' + ct.court + "</div>" +
+            '<div class="court' + (isSingles ? " is-singles" : "") + '">' +
+            '<div class="court-title">코트 ' + ct.court + " " + badge + "</div>" +
             '<div class="match">' +
             '<div class="team t1">' + teamTags(ct.team1) + "</div>" +
             '<div class="vs">VS</div>' +
@@ -257,7 +289,7 @@
         .join("");
 
       var restHtml = rd.resting.length
-        ? '<div class="resting">😴 휴식: <b>' + rd.resting.map(esc).join(", ") + "</b></div>"
+        ? '<div class="resting">' + MOON_SVG + "휴식: <b>" + rd.resting.map(esc).join(", ") + "</b></div>"
         : "";
 
       div.innerHTML =
@@ -310,12 +342,13 @@
     var res = state.last.res;
     var gm = state.last.gameMinutes;
     var base = state.last.startMin;
-    var lines = ["🎾 테니스 대진표", ""];
+    var lines = ["테니스 대진표", ""];
     res.rounds.forEach(function (rd, idx) {
       lines.push("■ 라운드 " + rd.round + " (" + fmtRange(idx * gm, idx * gm + gm, base) + ")");
       rd.courts.forEach(function (ct) {
+        var tag = ct.type === "singles" ? "(단식)" : "";
         lines.push(
-          "  코트" + ct.court + ": " +
+          "  코트" + ct.court + tag + ": " +
             ct.team1.join(" · ") + "  vs  " + ct.team2.join(" · ")
         );
       });
@@ -333,7 +366,7 @@
     if (!text) return;
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(text).then(
-        function () { toast("복사됐어요! 단톡방에 붙여넣으세요 📋"); },
+        function () { toast("복사됐어요. 단톡방에 붙여넣으세요."); },
         function () { fallbackCopy(text); }
       );
     } else {
@@ -348,8 +381,8 @@
     ta.style.opacity = "0";
     document.body.appendChild(ta);
     ta.select();
-    try { document.execCommand("copy"); toast("복사됐어요! 📋"); }
-    catch (e) { toast("복사에 실패했어요"); }
+    try { document.execCommand("copy"); toast("복사됐어요."); }
+    catch (e) { toast("복사에 실패했어요."); }
     document.body.removeChild(ta);
   }
 
@@ -377,9 +410,17 @@
         if (!isNaN(min)) val = Math.max(min, val);
         if (!isNaN(max)) val = Math.min(max, val);
         input.value = val;
-        updateHints();
+        onSettingChange();
       });
     });
+  }
+
+  // 결과가 이미 떠 있으면 설정 변경 시 같은 시드로 즉시 재적용
+  function onSettingChange() {
+    updateHints();
+    if (!el.result.hidden && state.last) {
+      generate(false, true); // keepSeed=true: 무작위로 다시 섞지 않고 그대로 반영
+    }
   }
 
   function init() {
@@ -387,17 +428,20 @@
     syncManualUI();
     document.querySelectorAll(".stepper").forEach(bindStepper);
 
+    // 참석자 이름은 타이핑 중 잦은 갱신이므로 힌트만
     el.players.addEventListener("input", updateHints);
-    el.courts.addEventListener("input", updateHints);
-    el.gameMinutes.addEventListener("input", updateHints);
-    el.rounds.addEventListener("input", updateHints);
-    el.startTime.addEventListener("input", updateHints);
-    el.endTime.addEventListener("input", updateHints);
+
+    // 경기 세팅 변경은 결과가 있으면 즉시 재적용
+    el.courts.addEventListener("input", onSettingChange);
+    el.gameMinutes.addEventListener("input", onSettingChange);
+    el.rounds.addEventListener("input", onSettingChange);
+    el.startTime.addEventListener("input", onSettingChange);
+    el.endTime.addEventListener("input", onSettingChange);
 
     el.manualRounds.addEventListener("change", function () {
       state.customMode = el.manualRounds.checked;
       syncManualUI();
-      updateHints();
+      onSettingChange();
     });
 
     el.generate.addEventListener("click", function () { generate(false); });
