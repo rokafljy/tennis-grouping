@@ -111,6 +111,10 @@
    *   반드시 파트너로 묶어야 하는 인원 쌍(인덱스)과 최소 횟수. 요청 횟수를
    *   채울 때까지 배정 비용에 강한 보너스를 줘서 우선 배정되게 하고,
    *   채운 뒤에는 일반 파트너 다양성 규칙으로 되돌아간다.
+   * @param {{team1: [number, number], team2: [number, number]}[]} [opts.fixedMatches]
+   *   대진 자체를 그대로 고정할 매치 목록(인덱스). 앞쪽 라운드부터 순서대로
+   *   코트를 하나씩 예약해 이 대진 그대로 배정하고, 같은 라운드의 나머지
+   *   코트·인원은 자동으로 채운다. 코트가 부족하면 다음 라운드로 넘어간다.
    * @param {number}   [opts.partnerWeight]  파트너 반복 가중치 (기본 3)
    * @param {number}   [opts.opponentWeight] 상대 반복 가중치 (기본 1)
    * @returns {{rounds: Array, summary: Array, meta: Object}}
@@ -182,6 +186,29 @@
       }
       return false;
     }
+
+    // 대진 자체 고정(팀1 vs 팀2를 그대로) — 앞 라운드부터 코트를 예약해 배정한다.
+    var fixedMatchQueue = (opts.fixedMatches || [])
+      .map(function (fm) {
+        return {
+          team1: [fm.team1[0] | 0, fm.team1[1] | 0],
+          team2: [fm.team2[0] | 0, fm.team2[1] | 0],
+        };
+      })
+      .filter(function (fm) {
+        var four = fm.team1.concat(fm.team2);
+        if (four.some(function (x) { return x < 0 || x >= N; })) return false;
+        var uniq = {};
+        return four.every(function (x) {
+          if (uniq[x]) return false;
+          uniq[x] = true;
+          return true;
+        });
+      });
+    var fixedMatchResults = fixedMatchQueue.map(function (fm) {
+      return { team1: fm.team1, team2: fm.team2, round: null };
+    });
+    var fixedQueuePos = 0;
 
     // 코트 배정: 랜덤 재시작 그리디로 비용이 가장 낮은 배정을 찾는다.
     // sizes: 각 코트 인원 목록 (예: [4,4,4,2] → 복식 3 + 단식 1)
@@ -333,35 +360,59 @@
     for (var p0 = 0; p0 < N; p0++) allIndices.push(p0);
 
     for (var r = 0; r < rounds; r++) {
+      // ---- 0) 대진 고정: 이번 라운드에 배정할 수 있는 만큼 코트를 예약 ----
+      var reservedCourts = [];
+      var reservedSet = {};
+      while (fixedQueuePos < fixedMatchQueue.length && reservedCourts.length < courts) {
+        var fm = fixedMatchQueue[fixedQueuePos];
+        var four = fm.team1.concat(fm.team2);
+        if (four.some(function (x) { return reservedSet[x]; })) break; // 이번 라운드에 이미 나온 사람과 겹침
+        reservedCourts.push({ type: "doubles", team1: fm.team1, team2: fm.team2, group: null });
+        four.forEach(function (x) { reservedSet[x] = true; });
+        fixedMatchResults[fixedQueuePos].round = r + 1;
+        fixedQueuePos++;
+      }
+      // 예약된 대진의 파트너/상대/경기 수 상태를 먼저 갱신
+      reservedCourts.forEach(function (court) {
+        var t1 = court.team1, t2 = court.team2;
+        partner[key(t1[0], t1[1])] = partnerCount(t1[0], t1[1]) + 1;
+        partner[key(t2[0], t2[1])] = partnerCount(t2[0], t2[1]) + 1;
+        t1.forEach(function (a) {
+          t2.forEach(function (b) { opponent[key(a, b)] = opponentCount(a, b) + 1; });
+        });
+        t1.concat(t2).forEach(function (x) { games[x] += 1; });
+      });
+      var availableCourts = courts - reservedCourts.length;
+
       if (groupsIn && r < groupRounds) {
         // ---- 그룹별 라운드: A는 A끼리, B는 B끼리, 코트는 인원 비율로 분배 ----
         var poolA = [];
         var poolB = [];
         var poolOther = []; // 그룹 미지정 인원(그룹 라운드 동안은 휴식)
         for (var i = 0; i < N; i++) {
+          if (reservedSet[i]) continue; // 이미 대진 고정으로 배정됨
           if (groupsIn[i] === "A") poolA.push(i);
           else if (groupsIn[i] === "B") poolB.push(i);
           else poolOther.push(i);
         }
-        var split = splitCourtsForGroups(poolA.length, poolB.length, courts, r);
+        var split = splitCourtsForGroups(poolA.length, poolB.length, availableCourts, r);
         var rA = runRoundForPool(poolA, split.courtsA);
         var rB = runRoundForPool(poolB, split.courtsB);
         poolOther.forEach(function (x) {
           rests[x] += 1;
         });
 
-        var courtsRaw = rA.courts
-          .map(function (c) { return assign({}, c, { group: "A" }); })
-          .concat(
-            rB.courts.map(function (c) { return assign({}, c, { group: "B" }); })
-          );
+        var courtsRaw = reservedCourts
+          .concat(rA.courts.map(function (c) { return assign({}, c, { group: "A" }); }))
+          .concat(rB.courts.map(function (c) { return assign({}, c, { group: "B" }); }));
         var restingIdx = rA.resting.concat(rB.resting, poolOther);
 
         resultRounds.push(finalizeRound(r + 1, courtsRaw, restingIdx));
       } else {
         // ---- 혼합 라운드: 그룹 구분 없이 전체 인원 대상 ----
-        var rAll = runRoundForPool(allIndices, courts);
-        resultRounds.push(finalizeRound(r + 1, rAll.courts, rAll.resting));
+        var pool = allIndices.filter(function (x) { return !reservedSet[x]; });
+        var rAll = runRoundForPool(pool, availableCourts);
+        resultRounds.push(finalizeRound(r + 1, reservedCourts.concat(rAll.courts), rAll.resting));
       }
     }
 
@@ -398,6 +449,15 @@
       };
     });
 
+    // 대진 고정 배정 현황 (몇 라운드에 배정됐는지, 못 넣었으면 null)
+    var fixedMatchReport = fixedMatchResults.map(function (fm) {
+      return {
+        team1: fm.team1.map(nameOf),
+        team2: fm.team2.map(nameOf),
+        round: fm.round,
+      };
+    });
+
     return {
       rounds: resultRounds,
       summary: summary,
@@ -413,6 +473,7 @@
         mixedRounds: rounds - groupRounds,
         hasGroups: !!groupsIn,
         forcedPairs: forcedPairResults,
+        fixedMatches: fixedMatchReport,
         minGames: Math.min.apply(null, gameCounts),
         maxGames: Math.max.apply(null, gameCounts),
       },

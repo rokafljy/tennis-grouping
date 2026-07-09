@@ -25,9 +25,16 @@
     groupRounds: $("groupRounds"),
     useForcedPairs: $("useForcedPairs"),
     forcedPairsField: $("forced-pairs-field"),
-    forcedPairsText: $("forcedPairsText"),
+    forcedPairsRows: $("forced-pairs-rows"),
+    addForcedPairBtn: $("add-forced-pair"),
     forcedPairsHint: $("forced-pairs-hint"),
     forcedPairsResult: $("forced-pairs-result"),
+    useFixedMatches: $("useFixedMatches"),
+    fixedMatchesField: $("fixed-matches-field"),
+    fixedMatchesRows: $("fixed-matches-rows"),
+    addFixedMatchBtn: $("add-fixed-match"),
+    fixedMatchesHint: $("fixed-matches-hint"),
+    fixedMatchesResult: $("fixed-matches-result"),
     planHint: $("plan-hint"),
     generate: $("generate"),
     reshuffle: $("reshuffle"),
@@ -78,34 +85,139 @@
     return { names: parsePlayersRaw(el.players.value), groups: null };
   }
 
-  // "이름1, 이름2, 횟수" 줄들을 파싱해 참석자 목록(names) 기준 인덱스 쌍으로 변환.
-  // 이름을 찾지 못하거나 같은 사람을 지정한 줄은 errors에 담고 건너뛴다.
-  function resolveForcedPairs(text, names) {
-    var lines = (text || "")
-      .split("\n")
-      .map(function (s) { return s.trim(); })
-      .filter(function (s) { return s.length > 0; });
-
-    var pairs = [];
-    var errors = [];
-    lines.forEach(function (line) {
-      var parts = line.split(",").map(function (s) { return s.trim(); }).filter(function (s) { return s.length > 0; });
-      if (parts.length < 2) {
-        errors.push("'" + line + "' → 이름 2개가 필요해요");
+  // ---- 동적 행 입력 (고정 매칭 / 대진 고정) ----
+  // fields: [{name, placeholder, inputType}] 또는 {type:'label', text} 혼합 배열
+  function addDynRow(container, fields, onChange) {
+    var row = document.createElement("div");
+    row.className = "dyn-row";
+    fields.forEach(function (f) {
+      if (f.type === "label") {
+        var span = document.createElement("span");
+        span.className = "vs-label";
+        span.textContent = f.text;
+        row.appendChild(span);
         return;
       }
-      var nameA = parts[0];
-      var nameB = parts[1];
-      var count = parseInt(parts[2], 10);
-      if (!count || count < 1) count = 1;
-      var idxA = names.indexOf(nameA);
-      var idxB = names.indexOf(nameB);
-      if (idxA === -1) { errors.push(nameA + "님을 참석자 명단에서 찾을 수 없어요"); return; }
-      if (idxB === -1) { errors.push(nameB + "님을 참석자 명단에서 찾을 수 없어요"); return; }
-      if (idxA === idxB) { errors.push(nameA + "는 같은 사람과 매칭할 수 없어요"); return; }
-      pairs.push({ a: idxA, b: idxB, count: count });
+      var inp = document.createElement("input");
+      inp.type = f.inputType || "text";
+      inp.className = "row-input " + f.name;
+      inp.placeholder = f.placeholder || "";
+      inp.autocomplete = "off";
+      if (f.inputType === "number") inp.min = "1";
+      inp.addEventListener("input", onChange);
+      row.appendChild(inp);
+    });
+    var rm = document.createElement("button");
+    rm.type = "button";
+    rm.className = "row-remove";
+    rm.setAttribute("aria-label", "삭제");
+    rm.textContent = "×";
+    rm.addEventListener("click", function () {
+      row.remove();
+      onChange();
+    });
+    row.appendChild(rm);
+    container.appendChild(row);
+    return row;
+  }
+
+  function addForcedPairRow(prefill) {
+    var row = addDynRow(
+      el.forcedPairsRows,
+      [
+        { name: "name1", placeholder: "이름1" },
+        { name: "name2", placeholder: "이름2" },
+        { name: "count", placeholder: "횟수", inputType: "number" },
+      ],
+      updateHints
+    );
+    row.querySelector(".name1").value = (prefill && prefill.name1) || "";
+    row.querySelector(".name2").value = (prefill && prefill.name2) || "";
+    row.querySelector(".count").value = (prefill && prefill.count) || 1;
+    return row;
+  }
+
+  function addFixedMatchRow(prefill) {
+    var row = addDynRow(
+      el.fixedMatchesRows,
+      [
+        { name: "name1", placeholder: "이름1" },
+        { name: "name2", placeholder: "이름2" },
+        { type: "label", text: "VS" },
+        { name: "name3", placeholder: "이름3" },
+        { name: "name4", placeholder: "이름4" },
+      ],
+      updateHints
+    );
+    row.querySelector(".name1").value = (prefill && prefill.name1) || "";
+    row.querySelector(".name2").value = (prefill && prefill.name2) || "";
+    row.querySelector(".name3").value = (prefill && prefill.name3) || "";
+    row.querySelector(".name4").value = (prefill && prefill.name4) || "";
+    return row;
+  }
+
+  function readForcedPairRows() {
+    return Array.from(el.forcedPairsRows.querySelectorAll(".dyn-row"))
+      .map(function (row) {
+        return {
+          name1: row.querySelector(".name1").value.trim(),
+          name2: row.querySelector(".name2").value.trim(),
+          count: parseInt(row.querySelector(".count").value, 10) || 1,
+        };
+      })
+      .filter(function (r) { return r.name1 && r.name2; });
+  }
+
+  function readFixedMatchRows() {
+    return Array.from(el.fixedMatchesRows.querySelectorAll(".dyn-row"))
+      .map(function (row) {
+        return {
+          name1: row.querySelector(".name1").value.trim(),
+          name2: row.querySelector(".name2").value.trim(),
+          name3: row.querySelector(".name3").value.trim(),
+          name4: row.querySelector(".name4").value.trim(),
+        };
+      })
+      .filter(function (r) { return r.name1 && r.name2 && r.name3 && r.name4; });
+  }
+
+  // 입력 행들을 참석자 목록(names) 기준 인덱스로 변환. 이름을 찾지 못하거나
+  // 같은 사람이 중복된 행은 errors에 담고 건너뛴다.
+  function resolveForcedPairs(rows, names) {
+    var pairs = [];
+    var errors = [];
+    rows.forEach(function (r) {
+      var idxA = names.indexOf(r.name1);
+      var idxB = names.indexOf(r.name2);
+      if (idxA === -1) { errors.push(r.name1 + "님을 참석자 명단에서 찾을 수 없어요"); return; }
+      if (idxB === -1) { errors.push(r.name2 + "님을 참석자 명단에서 찾을 수 없어요"); return; }
+      if (idxA === idxB) { errors.push(r.name1 + "는 같은 사람과 매칭할 수 없어요"); return; }
+      pairs.push({ a: idxA, b: idxB, count: Math.max(1, r.count || 1) });
     });
     return { pairs: pairs, errors: errors };
+  }
+
+  function resolveFixedMatches(rows, names) {
+    var matches = [];
+    var errors = [];
+    rows.forEach(function (r) {
+      var labels = [r.name1, r.name2, r.name3, r.name4];
+      var idxs = labels.map(function (n) { return names.indexOf(n); });
+      var bad = false;
+      idxs.forEach(function (idx, i) {
+        if (idx === -1) { errors.push(labels[i] + "님을 참석자 명단에서 찾을 수 없어요"); bad = true; }
+      });
+      if (bad) return;
+      var uniq = {};
+      var dup = idxs.some(function (idx) {
+        if (uniq[idx]) return true;
+        uniq[idx] = true;
+        return false;
+      });
+      if (dup) { errors.push(labels.join(", ") + " 안에 같은 사람이 중복돼요"); return; }
+      matches.push({ team1: [idxs[0], idxs[1]], team2: [idxs[2], idxs[3]] });
+    });
+    return { matches: matches, errors: errors };
   }
 
   // "HH:MM" → 분(0~1439). 파싱 실패 시 null
@@ -205,7 +317,7 @@
     el.planHint.textContent = msg;
 
     if (el.useForcedPairs.checked) {
-      var resolved = resolveForcedPairs(el.forcedPairsText.value, players);
+      var resolved = resolveForcedPairs(readForcedPairRows(), players);
       if (resolved.errors.length) {
         el.forcedPairsHint.textContent = resolved.errors[0] +
           (resolved.errors.length > 1 ? " 외 " + (resolved.errors.length - 1) + "건" : "");
@@ -214,6 +326,19 @@
           resolved.pairs.length + "쌍 지정됨 · 요청한 횟수만큼 반드시 같은 팀으로 배정돼요.";
       } else {
         el.forcedPairsHint.textContent = "지정한 쌍은 요청한 횟수만큼 반드시 같은 팀(파트너)으로 배정돼요.";
+      }
+    }
+
+    if (el.useFixedMatches.checked) {
+      var resolvedFm = resolveFixedMatches(readFixedMatchRows(), players);
+      if (resolvedFm.errors.length) {
+        el.fixedMatchesHint.textContent = resolvedFm.errors[0] +
+          (resolvedFm.errors.length > 1 ? " 외 " + (resolvedFm.errors.length - 1) + "건" : "");
+      } else if (resolvedFm.matches.length) {
+        el.fixedMatchesHint.textContent =
+          resolvedFm.matches.length + "개 대진 지정됨 · 앞쪽 라운드부터 그대로 배정돼요.";
+      } else {
+        el.fixedMatchesHint.textContent = "지정한 대진은 그대로 배정되고, 나머지 인원은 자동으로 매칭돼요.";
       }
     }
 
@@ -264,7 +389,9 @@
           useGroups: el.useGroups.checked,
           groupRounds: el.groupRounds.value,
           useForcedPairs: el.useForcedPairs.checked,
-          forcedPairsText: el.forcedPairsText.value,
+          forcedPairRows: readForcedPairRows(),
+          useFixedMatches: el.useFixedMatches.checked,
+          fixedMatchRows: readFixedMatchRows(),
           courts: el.courts.value,
           gameMinutes: el.gameMinutes.value,
           rounds: el.rounds.value,
@@ -287,7 +414,13 @@
       if (d.useGroups != null) el.useGroups.checked = d.useGroups;
       if (d.groupRounds != null) el.groupRounds.value = d.groupRounds;
       if (d.useForcedPairs != null) el.useForcedPairs.checked = d.useForcedPairs;
-      if (d.forcedPairsText != null) el.forcedPairsText.value = d.forcedPairsText;
+      if (Array.isArray(d.forcedPairRows)) {
+        d.forcedPairRows.forEach(function (r) { addForcedPairRow(r); });
+      }
+      if (d.useFixedMatches != null) el.useFixedMatches.checked = d.useFixedMatches;
+      if (Array.isArray(d.fixedMatchRows)) {
+        d.fixedMatchRows.forEach(function (r) { addFixedMatchRow(r); });
+      }
       if (d.courts != null) el.courts.value = d.courts;
       if (d.gameMinutes != null) el.gameMinutes.value = d.gameMinutes;
       if (d.rounds != null) el.rounds.value = d.rounds;
@@ -310,7 +443,15 @@
   }
 
   function syncForcedPairsUI() {
-    el.forcedPairsField.hidden = !el.useForcedPairs.checked;
+    var on = el.useForcedPairs.checked;
+    el.forcedPairsField.hidden = !on;
+    if (on && el.forcedPairsRows.children.length === 0) addForcedPairRow();
+  }
+
+  function syncFixedMatchesUI() {
+    var on = el.useFixedMatches.checked;
+    el.fixedMatchesField.hidden = !on;
+    if (on && el.fixedMatchesRows.children.length === 0) addFixedMatchRow();
   }
 
   // ---- 대진표 생성 ----
@@ -361,7 +502,10 @@
     if (el.useForcedPairs.checked) {
       // 고정 매칭 이름은 중복 접미사(예: "(2)") 붙기 전 원본 명단 기준으로 지정하므로,
       // dedup 전 이름 목록(roster.names)을 기준으로 인덱스를 찾는다.
-      opts.forcedPairs = resolveForcedPairs(el.forcedPairsText.value, roster.names).pairs;
+      opts.forcedPairs = resolveForcedPairs(readForcedPairRows(), roster.names).pairs;
+    }
+    if (el.useFixedMatches.checked) {
+      opts.fixedMatches = resolveFixedMatches(readFixedMatchRows(), roster.names).matches;
     }
 
     var res;
@@ -417,6 +561,24 @@
     } else {
       el.forcedPairsResult.hidden = true;
       el.forcedPairsResult.innerHTML = "";
+    }
+
+    if (m.fixedMatches && m.fixedMatches.length) {
+      el.fixedMatchesResult.hidden = false;
+      el.fixedMatchesResult.innerHTML = m.fixedMatches
+        .map(function (fm) {
+          var ok = fm.round != null;
+          return (
+            '<div class="psum ' + (ok ? "ok" : "warn") + '">' +
+            esc(fm.team1.join(" · ")) + " vs " + esc(fm.team2.join(" · ")) + " " +
+            '<span class="status">' + (ok ? fm.round + "라운드" : "배정 못 함") + "</span>" +
+            "</div>"
+          );
+        })
+        .join("");
+    } else {
+      el.fixedMatchesResult.hidden = true;
+      el.fixedMatchesResult.innerHTML = "";
     }
 
     el.roundsBox.innerHTML = "";
@@ -532,6 +694,14 @@
         .map(function (fp) { return fp.a + "+" + fp.b + " " + fp.achieved + "/" + fp.required; })
         .join(", "));
     }
+    if (res.meta.fixedMatches && res.meta.fixedMatches.length) {
+      lines.push("· 대진 고정: " + res.meta.fixedMatches
+        .map(function (fm) {
+          return fm.team1.join("·") + " vs " + fm.team2.join("·") +
+            (fm.round != null ? " (" + fm.round + "라운드)" : " (배정 못 함)");
+        })
+        .join(", "));
+    }
     return lines.join("\n");
   }
 
@@ -602,13 +772,13 @@
     syncManualUI();
     syncGroupsUI();
     syncForcedPairsUI();
+    syncFixedMatchesUI();
     document.querySelectorAll(".stepper").forEach(bindStepper);
 
     // 참석자 이름은 타이핑 중 잦은 갱신이므로 힌트만
     el.players.addEventListener("input", updateHints);
     el.playersA.addEventListener("input", updateHints);
     el.playersB.addEventListener("input", updateHints);
-    el.forcedPairsText.addEventListener("input", updateHints);
 
     el.useGroups.addEventListener("change", function () {
       syncGroupsUI();
@@ -618,6 +788,19 @@
     el.useForcedPairs.addEventListener("change", function () {
       syncForcedPairsUI();
       onSettingChange();
+    });
+    el.addForcedPairBtn.addEventListener("click", function () {
+      addForcedPairRow();
+      updateHints();
+    });
+
+    el.useFixedMatches.addEventListener("change", function () {
+      syncFixedMatchesUI();
+      onSettingChange();
+    });
+    el.addFixedMatchBtn.addEventListener("click", function () {
+      addFixedMatchRow();
+      updateHints();
     });
 
     // 경기 세팅 변경은 결과가 있으면 즉시 재적용

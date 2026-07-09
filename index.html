@@ -13,7 +13,7 @@
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230071e3' stroke-width='2'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M5.6 5.6a9 9 0 0 0 0 12.8'/%3E%3Cpath d='M18.4 5.6a9 9 0 0 1 0 12.8'/%3E%3C/svg%3E"
     />
-    <link rel="stylesheet" href="styles.css?v=7" />
+    <link rel="stylesheet" href="styles.css?v=8" />
   </head>
   <body>
     <div class="app">
@@ -138,14 +138,25 @@
           </label>
 
           <div class="field" id="forced-pairs-field" hidden>
-            <span class="field-label">고정 매칭</span>
-            <textarea
-              id="forcedPairsText"
-              rows="3"
-              placeholder="한 줄에 '이름1, 이름2, 횟수'로 입력하세요. 횟수는 생략하면 1회예요.&#10;예)&#10;김철수, 박영희, 2&#10;이라켓, 최스핀"
-            ></textarea>
+            <span class="field-label">고정 매칭 (파트너)</span>
+            <div id="forced-pairs-rows" class="rows"></div>
+            <button type="button" id="add-forced-pair" class="btn btn-small add-row-btn">+ 쌍 추가</button>
             <p class="hint" id="forced-pairs-hint" style="margin-top: 8px">
               지정한 쌍은 요청한 횟수만큼 반드시 같은 팀(파트너)으로 배정돼요.
+            </p>
+          </div>
+
+          <label class="check">
+            <input type="checkbox" id="useFixedMatches" />
+            <span>대진(경기)을 직접 지정할래요</span>
+          </label>
+
+          <div class="field" id="fixed-matches-field" hidden>
+            <span class="field-label">대진 고정</span>
+            <div id="fixed-matches-rows" class="rows"></div>
+            <button type="button" id="add-fixed-match" class="btn btn-small add-row-btn">+ 대진 추가</button>
+            <p class="hint" id="fixed-matches-hint" style="margin-top: 8px">
+              지정한 대진은 그대로 배정되고, 나머지 인원은 자동으로 매칭돼요.
             </p>
           </div>
 
@@ -188,6 +199,7 @@
             </div>
             <p class="meta" id="result-meta"></p>
             <div id="forced-pairs-result" class="player-summary" hidden></div>
+            <div id="fixed-matches-result" class="player-summary" hidden></div>
           </div>
 
           <h2 class="section-title"><span class="step-no">4</span> 라운드</h2>
@@ -207,7 +219,7 @@
 
     <div class="toast" id="toast" hidden></div>
 
-    <script src="scheduler.js?v=7"></script>
-    <script src="app.js?v=7"></script>
+    <script src="scheduler.js?v=8"></script>
+    <script src="app.js?v=8"></script>
   </body>
 </html>

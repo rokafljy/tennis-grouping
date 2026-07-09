@@ -278,6 +278,56 @@ analyze("소규모(6명/1코트)", {
     "forcedPairs 미지정 시 meta.forcedPairs가 빈 배열");
 })();
 
+// ---- 대진 고정(팀1 vs 팀2를 그대로) 기능 ----
+
+// 20명/3코트/4라운드, "P1+P2 vs P3+P4"를 그대로 고정
+(function () {
+  var players = Array.from({ length: 20 }, function (_, i) { return "P" + (i + 1); });
+  var res = Scheduler.generate({
+    players: players, courts: 3, rounds: 4,
+    fixedMatches: [{ team1: [0, 1], team2: [2, 3] }],
+  });
+  var fm = res.meta.fixedMatches[0];
+  assert(fm.team1[0] === "P1" && fm.team1[1] === "P2", "fixedMatches 메타에 team1 이름 반영");
+  assert(fm.team2[0] === "P3" && fm.team2[1] === "P4", "fixedMatches 메타에 team2 이름 반영");
+  assert(fm.round === 1, "1라운드에 배정됨 (실제 " + fm.round + ")");
+
+  var rd1 = res.rounds[0];
+  var matched = rd1.courts.some(function (ct) {
+    return ct.team1.join(",") === "P1,P2" && ct.team2.join(",") === "P3,P4";
+  });
+  assert(matched, "1라운드 코트 데이터에 P1+P2 vs P3+P4 대진이 그대로 존재");
+
+  // 나머지 인원은 그 라운드에 자동 배정되어야 함 (16명 남음 → 3코트 중 1코트 씀 → 나머지 2코트=8명, 8명 휴식)
+  assert(rd1.courts.length >= 2, "고정 대진 외 나머지 코트도 자동으로 채워짐");
+})();
+
+// 코트보다 대진 고정이 많으면 다음 라운드로 넘어가는지
+(function () {
+  var players = Array.from({ length: 16 }, function (_, i) { return "P" + (i + 1); });
+  var res = Scheduler.generate({
+    players: players, courts: 2, rounds: 4,
+    fixedMatches: [
+      { team1: [0, 1], team2: [2, 3] },
+      { team1: [4, 5], team2: [6, 7] },
+      { team1: [8, 9], team2: [10, 11] },
+    ],
+  });
+  var rounds = res.meta.fixedMatches.map(function (fm) { return fm.round; });
+  assert(rounds[0] === 1 && rounds[1] === 1, "코트(2개) 만큼은 1라운드에 배정 (실제 " + rounds.join(",") + ")");
+  assert(rounds[2] === 2, "코트 초과분은 다음 라운드로 넘어감 (실제 " + rounds[2] + ")");
+})();
+
+// fixedMatches 미지정 시 하위호환
+(function () {
+  var res = Scheduler.generate({
+    players: Array.from({ length: 8 }, function (_, i) { return "P" + (i + 1); }),
+    courts: 2, rounds: 3,
+  });
+  assert(Array.isArray(res.meta.fixedMatches) && res.meta.fixedMatches.length === 0,
+    "fixedMatches 미지정 시 meta.fixedMatches가 빈 배열");
+})();
+
 // 최소 인원 미달 시 에러
 try {
   Scheduler.generate({ players: ["A", "B", "C"], courts: 1, rounds: 2 });
