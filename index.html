@@ -37,14 +37,40 @@
         <section class="card" id="input-card">
           <h2><span class="step-no">1</span> 참석자 입력</h2>
 
-          <label class="field">
-            <span class="field-label">참석자 이름 <em id="name-count">(0명)</em></span>
-            <textarea
-              id="players"
-              rows="6"
-              placeholder="한 줄에 한 명씩, 또는 쉼표로 구분해서 입력하세요.&#10;예)&#10;김테니&#10;이라켓&#10;박발리&#10;최스핀"
-            ></textarea>
+          <label class="check" id="use-groups-check">
+            <input type="checkbox" id="useGroups" />
+            <span>레벨(A/B 그룹)을 구분해서 넣을래요</span>
           </label>
+
+          <div id="single-players-wrap">
+            <label class="field">
+              <span class="field-label">참석자 이름 <em id="name-count">(0명)</em></span>
+              <textarea
+                id="players"
+                rows="6"
+                placeholder="한 줄에 한 명씩, 또는 쉼표로 구분해서 입력하세요.&#10;예)&#10;김테니&#10;이라켓&#10;박발리&#10;최스핀"
+              ></textarea>
+            </label>
+          </div>
+
+          <div id="group-players-wrap" hidden>
+            <label class="field">
+              <span class="field-label">A그룹 참석자 <em id="name-count-a">(0명)</em></span>
+              <textarea
+                id="playersA"
+                rows="4"
+                placeholder="한 줄에 한 명씩&#10;예)&#10;김테니&#10;이라켓"
+              ></textarea>
+            </label>
+            <label class="field">
+              <span class="field-label">B그룹 참석자 <em id="name-count-b">(0명)</em></span>
+              <textarea
+                id="playersB"
+                rows="4"
+                placeholder="한 줄에 한 명씩&#10;예)&#10;박발리&#10;최스핀"
+              ></textarea>
+            </label>
+          </div>
         </section>
 
         <!-- 2. 경기 세팅 -->
@@ -92,6 +118,18 @@
               <input id="rounds" type="number" min="1" max="30" value="4" inputmode="numeric" />
               <button type="button" class="step" data-delta="1">+</button>
             </div>
+          </div>
+
+          <div class="field" id="group-rounds-field" hidden>
+            <span class="field-label">그룹별(레벨전) 라운드 수</span>
+            <div class="stepper" data-target="groupRounds">
+              <button type="button" class="step" data-delta="-1">−</button>
+              <input id="groupRounds" type="number" min="0" max="30" value="0" inputmode="numeric" />
+              <button type="button" class="step" data-delta="1">+</button>
+            </div>
+            <p class="hint" style="margin-top: 8px">
+              앞쪽 라운드는 A끼리·B끼리만 진행하고, 나머지 라운드는 전체를 섞어요.
+            </p>
           </div>
 
           <p class="hint" id="plan-hint"></p>

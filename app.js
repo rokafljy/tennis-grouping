@@ -7,6 +7,13 @@
   var el = {
     players: $("players"),
     nameCount: $("name-count"),
+    useGroups: $("useGroups"),
+    singlePlayersWrap: $("single-players-wrap"),
+    groupPlayersWrap: $("group-players-wrap"),
+    playersA: $("playersA"),
+    playersB: $("playersB"),
+    nameCountA: $("name-count-a"),
+    nameCountB: $("name-count-b"),
     courts: $("courts"),
     gameMinutes: $("gameMinutes"),
     rounds: $("rounds"),
@@ -14,6 +21,8 @@
     startTime: $("startTime"),
     endTime: $("endTime"),
     manualRounds: $("manualRounds"),
+    groupRoundsField: $("group-rounds-field"),
+    groupRounds: $("groupRounds"),
     planHint: $("plan-hint"),
     generate: $("generate"),
     reshuffle: $("reshuffle"),
@@ -41,11 +50,27 @@
   };
 
   // ---- 참석자 파싱 ----
-  function parsePlayers() {
-    return el.players.value
+  function parsePlayersRaw(text) {
+    return (text || "")
       .split(/[\n,]/)
       .map(function (s) { return s.trim(); })
       .filter(function (s) { return s.length > 0; });
+  }
+
+  // 현재 입력 모드(단일 목록 / A·B 그룹)에 따라 이름 목록과 그룹 태그를 함께 반환한다.
+  // groups는 useGroups가 꺼져 있으면 null.
+  function getRoster() {
+    if (el.useGroups.checked) {
+      var a = parsePlayersRaw(el.playersA.value);
+      var b = parsePlayersRaw(el.playersB.value);
+      return {
+        names: a.concat(b),
+        groups: a.map(function () { return "A"; }).concat(b.map(function () { return "B"; })),
+        countA: a.length,
+        countB: b.length,
+      };
+    }
+    return { names: parsePlayersRaw(el.players.value), groups: null };
   }
 
   // "HH:MM" → 분(0~1439). 파싱 실패 시 null
@@ -87,13 +112,28 @@
 
   // ---- 안내 문구 갱신 ----
   function updateHints() {
-    var players = parsePlayers();
-    el.nameCount.textContent = "(" + players.length + "명)";
+    var roster = getRoster();
+    var players = roster.names;
+
+    if (el.useGroups.checked) {
+      el.nameCountA.textContent = "(" + roster.countA + "명)";
+      el.nameCountB.textContent = "(" + roster.countB + "명)";
+    } else {
+      el.nameCount.textContent = "(" + players.length + "명)";
+    }
 
     var courts = parseInt(el.courts.value, 10) || 1;
     var gm = parseInt(el.gameMinutes.value, 10) || 30;
     var dur = durationMinutes();
     var rounds = computeRounds();
+
+    // 그룹별 라운드 수는 총 라운드 수를 넘을 수 없다
+    if (el.useGroups.checked) {
+      el.groupRounds.setAttribute("max", rounds);
+      if ((parseInt(el.groupRounds.value, 10) || 0) > rounds) {
+        el.groupRounds.value = rounds;
+      }
+    }
 
     if (dur == null) {
       el.planHint.textContent = "시작/종료 시간을 확인해 주세요.";
@@ -108,8 +148,20 @@
 
     var plan = planLayout(players.length, courts);
     var msg =
-      "모임 " + fmtDuration(dur) + " · 총 " + rounds + "라운드 · " +
-      courtLayoutText(plan) + " · 라운드당 " + plan.seated + "명 경기";
+      "모임 " + fmtDuration(dur) + " · 총 " + rounds + "라운드";
+
+    if (el.useGroups.checked) {
+      var gr = Math.min(rounds, parseInt(el.groupRounds.value, 10) || 0);
+      msg += gr > 0 ? "(그룹별 " + gr + " · 혼합 " + (rounds - gr) + ")" : "(전부 혼합)";
+      if (roster.countA > 0 && roster.countA < 4 && gr > 0) {
+        msg += " · A그룹 인원이 적어 그룹전에서 자주 쉴 수 있어요";
+      }
+      if (roster.countB > 0 && roster.countB < 4 && gr > 0) {
+        msg += " · B그룹 인원이 적어 그룹전에서 자주 쉴 수 있어요";
+      }
+    }
+
+    msg += " · " + courtLayoutText(plan) + " · 라운드당 " + plan.seated + "명 경기";
     if (plan.rest > 0) msg += " · " + plan.rest + "명 휴식";
     // 라운드 총 소요시간이 모임 시간을 넘는지 안내
     if (rounds * gm > dur) {
@@ -158,6 +210,10 @@
         STORAGE_KEY,
         JSON.stringify({
           players: el.players.value,
+          playersA: el.playersA.value,
+          playersB: el.playersB.value,
+          useGroups: el.useGroups.checked,
+          groupRounds: el.groupRounds.value,
           courts: el.courts.value,
           gameMinutes: el.gameMinutes.value,
           rounds: el.rounds.value,
@@ -175,6 +231,10 @@
       if (!raw) return;
       var d = JSON.parse(raw);
       if (d.players != null) el.players.value = d.players;
+      if (d.playersA != null) el.playersA.value = d.playersA;
+      if (d.playersB != null) el.playersB.value = d.playersB;
+      if (d.useGroups != null) el.useGroups.checked = d.useGroups;
+      if (d.groupRounds != null) el.groupRounds.value = d.groupRounds;
       if (d.courts != null) el.courts.value = d.courts;
       if (d.gameMinutes != null) el.gameMinutes.value = d.gameMinutes;
       if (d.rounds != null) el.rounds.value = d.rounds;
@@ -189,13 +249,22 @@
     el.customRounds.hidden = !state.customMode;
   }
 
+  function syncGroupsUI() {
+    var on = el.useGroups.checked;
+    el.singlePlayersWrap.hidden = on;
+    el.groupPlayersWrap.hidden = !on;
+    el.groupRoundsField.hidden = !on;
+  }
+
   // ---- 대진표 생성 ----
   // reshuffle: 새 시드로 다시 섞기 / silent: 스크롤 이동 없이 조용히 갱신
   function generate(reshuffle, silent) {
     el.error.hidden = true;
-    var players = parsePlayers();
+    var roster = getRoster();
+    var players = roster.names;
+    var groups = roster.groups;
 
-    // 중복 이름 확인 → 번호로 구분 표시
+    // 중복 이름 확인 → 번호로 구분 표시 (groups는 인덱스가 같이 유지되므로 그대로 둠)
     var seen = {};
     var dup = false;
     players = players.map(function (name) {
@@ -228,6 +297,10 @@
       rounds: rounds,
       seed: state.seed,
     };
+    if (groups) {
+      opts.groups = groups;
+      opts.groupRounds = Math.min(rounds, parseInt(el.groupRounds.value, 10) || 0);
+    }
 
     var res;
     try {
@@ -258,8 +331,11 @@
       m.minGames === m.maxGames
         ? "모두 " + m.minGames + "경기씩"
         : m.minGames + "~" + m.maxGames + "경기";
+    var roundsText =
+      m.rounds + "라운드" +
+      (m.hasGroups ? "(그룹별 " + m.groupRounds + " · 혼합 " + m.mixedRounds + ")" : "");
     el.resultMeta.textContent =
-      m.players + "명 · " + courtLayoutText(m) + " · " + m.rounds + "라운드 · 1인당 " +
+      m.players + "명 · " + courtLayoutText(m) + " · " + roundsText + " · 1인당 " +
       balance + (m.restPerRound > 0 ? " · 라운드당 " + m.restPerRound + "명 휴식" : "");
 
     el.roundsBox.innerHTML = "";
@@ -276,9 +352,12 @@
           var badge = isSingles
             ? '<span class="ctype singles">단식</span>'
             : '<span class="ctype doubles">복식</span>';
+          var gbadge = ct.group
+            ? ' <span class="gtag ' + (ct.group === "A" ? "a" : "b") + '">' + esc(ct.group) + "조</span>"
+            : "";
           return (
             '<div class="court' + (isSingles ? " is-singles" : "") + '">' +
-            '<div class="court-title">코트 ' + ct.court + " " + badge + "</div>" +
+            '<div class="court-title">코트 ' + ct.court + " " + badge + gbadge + "</div>" +
             '<div class="match">' +
             '<div class="team t1">' + teamTags(ct.team1) + "</div>" +
             '<div class="vs">VS</div>' +
@@ -292,9 +371,13 @@
         ? '<div class="resting">' + MOON_SVG + "휴식: <b>" + rd.resting.map(esc).join(", ") + "</b></div>"
         : "";
 
+      // 이 라운드가 그룹별(레벨전)인지 여부 — 코트가 하나라도 group 태그를 갖고 있으면 그룹별 라운드
+      var isGroupRound = rd.courts.some(function (ct) { return !!ct.group; });
+      var phaseTag = isGroupRound ? '<span class="phase-tag">그룹전</span>' : "";
+
       div.innerHTML =
         '<div class="round-head">' +
-        "<h3>라운드 " + rd.round + "</h3>" +
+        "<h3>" + phaseTag + "라운드 " + rd.round + "</h3>" +
         '<span class="time-tag">' + timeLabel + "</span>" +
         "</div>" +
         '<div class="courts">' + courtsHtml + "</div>" +
@@ -344,9 +427,14 @@
     var base = state.last.startMin;
     var lines = ["테니스 대진표", ""];
     res.rounds.forEach(function (rd, idx) {
-      lines.push("■ 라운드 " + rd.round + " (" + fmtRange(idx * gm, idx * gm + gm, base) + ")");
+      var isGroupRound = rd.courts.some(function (ct) { return !!ct.group; });
+      var phase = isGroupRound ? " [그룹전]" : "";
+      lines.push("■ 라운드 " + rd.round + phase + " (" + fmtRange(idx * gm, idx * gm + gm, base) + ")");
       rd.courts.forEach(function (ct) {
-        var tag = ct.type === "singles" ? "(단식)" : "";
+        var tags = [];
+        if (ct.type === "singles") tags.push("단식");
+        if (ct.group) tags.push(ct.group + "조");
+        var tag = tags.length ? "(" + tags.join(", ") + ")" : "";
         lines.push(
           "  코트" + ct.court + tag + ": " +
             ct.team1.join(" · ") + "  vs  " + ct.team2.join(" · ")
@@ -426,15 +514,24 @@
   function init() {
     restore();
     syncManualUI();
+    syncGroupsUI();
     document.querySelectorAll(".stepper").forEach(bindStepper);
 
     // 참석자 이름은 타이핑 중 잦은 갱신이므로 힌트만
     el.players.addEventListener("input", updateHints);
+    el.playersA.addEventListener("input", updateHints);
+    el.playersB.addEventListener("input", updateHints);
+
+    el.useGroups.addEventListener("change", function () {
+      syncGroupsUI();
+      onSettingChange();
+    });
 
     // 경기 세팅 변경은 결과가 있으면 즉시 재적용
     el.courts.addEventListener("input", onSettingChange);
     el.gameMinutes.addEventListener("input", onSettingChange);
     el.rounds.addEventListener("input", onSettingChange);
+    el.groupRounds.addEventListener("input", onSettingChange);
     el.startTime.addEventListener("input", onSettingChange);
     el.endTime.addEventListener("input", onSettingChange);
 

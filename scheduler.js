@@ -10,6 +10,14 @@
  *   2) 같은 파트너가 반복되지 않게 (파트너 다양성)
  *   3) 같은 상대가 반복되지 않게 (상대 다양성)
  *
+ * 레벨(A/B 그룹) 지원:
+ *   opts.groups와 opts.groupRounds를 주면, 앞의 groupRounds개 라운드는
+ *   같은 그룹끼리만(A는 A끼리, B는 B끼리) 코트를 나눠 쓰고, 나머지 라운드는
+ *   전체를 섞어 배정한다. 코트는 그룹 인원 비율에 맞춰 나눈다.
+ *   경기 수·파트너·상대 반복 통계는 그룹 여부와 상관없이 전원에 대해
+ *   계속 누적되므로, 혼합 라운드에서 그룹 간 인원 차이로 인한 경기 수
+ *   편차도 자연스럽게 보정된다.
+ *
  * 브라우저(전역 window.Scheduler)와 Node(module.exports) 양쪽에서 사용 가능.
  */
 (function (root, factory) {
@@ -53,6 +61,43 @@
     return i < j ? i + "-" + j : j + "-" + i;
   }
 
+  // 복식 우선 + 남는 코트/인원이 있으면 단식 1코트를 추가하는 코트 구성 계산.
+  function planCourts(poolSize, availableCourts) {
+    var doublesCourts = Math.min(availableCourts, Math.floor(poolSize / COURT_SIZE));
+    var remPlayers = poolSize - COURT_SIZE * doublesCourts;
+    var remCourts = availableCourts - doublesCourts;
+    var singlesCourts = remPlayers >= SINGLES_SIZE && remCourts >= 1 ? 1 : 0;
+    var usableCourts = doublesCourts + singlesCourts;
+    var seats = COURT_SIZE * doublesCourts + SINGLES_SIZE * singlesCourts;
+    var courtSizes = [];
+    for (var dc = 0; dc < doublesCourts; dc++) courtSizes.push(COURT_SIZE);
+    for (var sc = 0; sc < singlesCourts; sc++) courtSizes.push(SINGLES_SIZE);
+    return {
+      doublesCourts: doublesCourts,
+      singlesCourts: singlesCourts,
+      usableCourts: usableCourts,
+      seats: seats,
+      rest: poolSize - seats,
+      courtSizes: courtSizes,
+    };
+  }
+
+  // 그룹 라운드에서 총 코트를 A/B 인원 비율로 분배. 코트가 2개 이상이고
+  // 양쪽 다 인원이 있으면 각 그룹에 최소 1코트씩은 배정한다.
+  function splitCourtsForGroups(nA, nB, totalCourts, roundIndex) {
+    if (totalCourts <= 0) return { courtsA: 0, courtsB: 0 };
+    if (nA === 0) return { courtsA: 0, courtsB: totalCourts };
+    if (nB === 0) return { courtsA: totalCourts, courtsB: 0 };
+    if (totalCourts === 1) {
+      // 코트가 1개뿐이면 라운드마다 번갈아 배정
+      return roundIndex % 2 === 0 ? { courtsA: 1, courtsB: 0 } : { courtsA: 0, courtsB: 1 };
+    }
+    var total = nA + nB;
+    var courtsA = Math.round((totalCourts * nA) / total);
+    courtsA = Math.max(1, Math.min(totalCourts - 1, courtsA));
+    return { courtsA: courtsA, courtsB: totalCourts - courtsA };
+  }
+
   /**
    * 대진표 생성
    * @param {Object} opts
@@ -60,6 +105,8 @@
    * @param {number}   opts.courts   코트 수
    * @param {number}   opts.rounds   라운드(경기 회차) 수
    * @param {number}   [opts.seed]   난수 시드 (같은 값이면 결과 동일)
+   * @param {("A"|"B"|null)[]} [opts.groups] 참석자별 그룹 (players와 같은 길이)
+   * @param {number}   [opts.groupRounds] 그룹별로만 진행할 앞쪽 라운드 수 (기본 0)
    * @param {number}   [opts.partnerWeight]  파트너 반복 가중치 (기본 3)
    * @param {number}   [opts.opponentWeight] 상대 반복 가중치 (기본 1)
    * @returns {{rounds: Array, summary: Array, meta: Object}}
@@ -72,32 +119,22 @@
     var seed = opts.seed != null ? opts.seed | 0 : 12345;
     var wPartner = opts.partnerWeight != null ? opts.partnerWeight : 3;
     var wOpp = opts.opponentWeight != null ? opts.opponentWeight : 1;
+    var wSingles = 2; // 단식 배정 반복 억제 가중치
 
     var N = names.length;
     if (N < COURT_SIZE) {
       throw new Error("복식 경기를 하려면 최소 " + COURT_SIZE + "명이 필요합니다.");
     }
 
+    var groupsIn = opts.groups || null;
+    var groupRounds = groupsIn ? Math.max(0, Math.min(rounds, opts.groupRounds | 0)) : 0;
+
     var rng = makeRng(seed);
-    var wSingles = 2; // 단식 배정 반복 억제 가중치
 
-    // 코트 구성: 복식(4명) 우선으로 채우고, 코트가 남고 인원도 남으면
-    // 나머지를 단식(2명, 1:1) 코트로 배정한다.
-    // 예) 4코트·14명 → 복식 3코트(12명) + 단식 1코트(2명), 휴식 0명
-    var doublesCourts = Math.min(courts, Math.floor(N / COURT_SIZE));
-    var remPlayers = N - COURT_SIZE * doublesCourts; // 복식 후 남는 인원
-    var remCourts = courts - doublesCourts; // 남는 코트
-    var singlesCourts = remPlayers >= SINGLES_SIZE && remCourts >= 1 ? 1 : 0;
-    var usableCourts = doublesCourts + singlesCourts;
-    var seatsPerRound = COURT_SIZE * doublesCourts + SINGLES_SIZE * singlesCourts;
-    var restPerRound = N - seatsPerRound; // 매 라운드 휴식 인원
+    // 전체 인원 기준 코트 구성 (메타 표시 및 혼합 라운드에 사용)
+    var fullPlan = planCourts(N, courts);
 
-    // 코트 크기 목록 (복식 4 … 단식 2) — 매 라운드 동일
-    var courtSizes = [];
-    for (var dc = 0; dc < doublesCourts; dc++) courtSizes.push(COURT_SIZE);
-    for (var sc = 0; sc < singlesCourts; sc++) courtSizes.push(SINGLES_SIZE);
-
-    // 상태 추적 (인덱스 기반)
+    // 상태 추적 (인덱스 기반, 그룹 여부와 무관하게 전원 공통 누적)
     var games = new Array(N).fill(0); // 경기 수
     var rests = new Array(N).fill(0); // 휴식 수
     var singlesPlayed = new Array(N).fill(0); // 단식 경기 수
@@ -109,72 +146,6 @@
     }
     function opponentCount(i, j) {
       return opponent[key(i, j)] || 0;
-    }
-
-    var resultRounds = [];
-
-    for (var r = 0; r < rounds; r++) {
-      // 1) 이번 라운드 휴식 인원 선정
-      //    경기를 많이 뛴 사람 > 적게 쉰 사람 순으로 쉬게 해서 균형을 맞춘다.
-      var order = [];
-      for (var p = 0; p < N; p++) order.push(p);
-      order = shuffle(order, rng); // 동점 tie-break용 무작위 섞기
-      order.sort(function (a, b) {
-        if (games[b] !== games[a]) return games[b] - games[a]; // 많이 뛴 사람 먼저 휴식
-        return rests[a] - rests[b]; // 적게 쉰 사람 먼저 휴식
-      });
-
-      var resting = order.slice(0, restPerRound).sort(function (a, b) {
-        return a - b;
-      });
-      var restSet = {};
-      resting.forEach(function (x) {
-        restSet[x] = true;
-      });
-
-      var playing = [];
-      for (var q = 0; q < N; q++) {
-        if (!restSet[q]) playing.push(q);
-      }
-
-      // 2) 뛰는 인원을 코트에 배정 (파트너/상대 반복 최소화)
-      var best = assignCourts(playing, courtSizes);
-
-      // 3) 상태 갱신
-      best.forEach(function (court) {
-        var t1 = court.team1;
-        var t2 = court.team2;
-        // 파트너 (복식일 때만 — 팀이 2명)
-        if (t1.length === 2) partner[key(t1[0], t1[1])] = partnerCount(t1[0], t1[1]) + 1;
-        if (t2.length === 2) partner[key(t2[0], t2[1])] = partnerCount(t2[0], t2[1]) + 1;
-        // 상대 (팀1 x 팀2 전부)
-        t1.forEach(function (a) {
-          t2.forEach(function (b) {
-            opponent[key(a, b)] = opponentCount(a, b) + 1;
-          });
-        });
-        // 경기 수 / 단식 수
-        t1.concat(t2).forEach(function (x) {
-          games[x] += 1;
-          if (court.type === "singles") singlesPlayed[x] += 1;
-        });
-      });
-      resting.forEach(function (x) {
-        rests[x] += 1;
-      });
-
-      resultRounds.push({
-        round: r + 1,
-        courts: best.map(function (court, ci) {
-          return {
-            court: ci + 1,
-            type: court.type, // "doubles" | "singles"
-            team1: court.team1.map(nameOf),
-            team2: court.team2.map(nameOf),
-          };
-        }),
-        resting: resting.map(nameOf),
-      });
     }
 
     // 코트 배정: 랜덤 재시작 그리디로 비용이 가장 낮은 배정을 찾는다.
@@ -243,13 +214,135 @@
       return cost;
     }
 
+    // 주어진 인원 풀(pool)과 사용 가능 코트 수로 한 라운드분을 배정하고
+    // 공용 상태(games/rests/partner/opponent/singlesPlayed)를 갱신한다.
+    // 반환값의 courts/resting은 아직 이름이 아닌 인덱스 기반이다.
+    function runRoundForPool(pool, availableCourts) {
+      if (pool.length === 0 || availableCourts <= 0) {
+        return { courts: [], resting: pool.slice() };
+      }
+      var plan = planCourts(pool.length, availableCourts);
+
+      var order = shuffle(pool, rng); // 동점 tie-break용 무작위 섞기
+      order.sort(function (a, b) {
+        if (games[b] !== games[a]) return games[b] - games[a]; // 많이 뛴 사람 먼저 휴식
+        return rests[a] - rests[b]; // 적게 쉰 사람 먼저 휴식
+      });
+
+      var resting = order.slice(0, plan.rest).sort(function (a, b) {
+        return a - b;
+      });
+      var restSet = {};
+      resting.forEach(function (x) {
+        restSet[x] = true;
+      });
+      var playing = pool.filter(function (x) {
+        return !restSet[x];
+      });
+
+      var best = assignCourts(playing, plan.courtSizes) || [];
+
+      best.forEach(function (court) {
+        var t1 = court.team1;
+        var t2 = court.team2;
+        if (t1.length === 2) partner[key(t1[0], t1[1])] = partnerCount(t1[0], t1[1]) + 1;
+        if (t2.length === 2) partner[key(t2[0], t2[1])] = partnerCount(t2[0], t2[1]) + 1;
+        t1.forEach(function (a) {
+          t2.forEach(function (b) {
+            opponent[key(a, b)] = opponentCount(a, b) + 1;
+          });
+        });
+        t1.concat(t2).forEach(function (x) {
+          games[x] += 1;
+          if (court.type === "singles") singlesPlayed[x] += 1;
+        });
+      });
+      resting.forEach(function (x) {
+        rests[x] += 1;
+      });
+
+      return { courts: best, resting: resting };
+    }
+
     function nameOf(idx) {
       return names[idx];
     }
 
+    // 인덱스 기반 라운드 결과(코트 배열 + 그룹 태그, 휴식 인원)를 이름 기반
+    // 최종 라운드 객체로 변환한다.
+    function finalizeRound(roundNum, courtsRaw, restingIdx) {
+      return {
+        round: roundNum,
+        courts: courtsRaw.map(function (court, ci) {
+          return {
+            court: ci + 1,
+            type: court.type, // "doubles" | "singles"
+            group: court.group || null, // "A" | "B" | null(혼합)
+            team1: court.team1.map(nameOf),
+            team2: court.team2.map(nameOf),
+          };
+        }),
+        resting: restingIdx
+          .slice()
+          .sort(function (a, b) { return a - b; })
+          .map(nameOf),
+      };
+    }
+
+    var resultRounds = [];
+    var allIndices = [];
+    for (var p0 = 0; p0 < N; p0++) allIndices.push(p0);
+
+    for (var r = 0; r < rounds; r++) {
+      if (groupsIn && r < groupRounds) {
+        // ---- 그룹별 라운드: A는 A끼리, B는 B끼리, 코트는 인원 비율로 분배 ----
+        var poolA = [];
+        var poolB = [];
+        var poolOther = []; // 그룹 미지정 인원(그룹 라운드 동안은 휴식)
+        for (var i = 0; i < N; i++) {
+          if (groupsIn[i] === "A") poolA.push(i);
+          else if (groupsIn[i] === "B") poolB.push(i);
+          else poolOther.push(i);
+        }
+        var split = splitCourtsForGroups(poolA.length, poolB.length, courts, r);
+        var rA = runRoundForPool(poolA, split.courtsA);
+        var rB = runRoundForPool(poolB, split.courtsB);
+        poolOther.forEach(function (x) {
+          rests[x] += 1;
+        });
+
+        var courtsRaw = rA.courts
+          .map(function (c) { return assign({}, c, { group: "A" }); })
+          .concat(
+            rB.courts.map(function (c) { return assign({}, c, { group: "B" }); })
+          );
+        var restingIdx = rA.resting.concat(rB.resting, poolOther);
+
+        resultRounds.push(finalizeRound(r + 1, courtsRaw, restingIdx));
+      } else {
+        // ---- 혼합 라운드: 그룹 구분 없이 전체 인원 대상 ----
+        var rAll = runRoundForPool(allIndices, courts);
+        resultRounds.push(finalizeRound(r + 1, rAll.courts, rAll.resting));
+      }
+    }
+
+    function assign(target) {
+      for (var s = 1; s < arguments.length; s++) {
+        var src = arguments[s];
+        for (var k in src) target[k] = src[k];
+      }
+      return target;
+    }
+
     // 참석자별 요약
     var summary = names.map(function (name, i) {
-      return { name: name, games: games[i], rests: rests[i], singles: singlesPlayed[i] };
+      return {
+        name: name,
+        games: games[i],
+        rests: rests[i],
+        singles: singlesPlayed[i],
+        group: groupsIn ? groupsIn[i] || null : null,
+      };
     });
 
     var gameCounts = summary.map(function (s) {
@@ -262,11 +355,14 @@
       meta: {
         players: N,
         courts: courts,
-        usableCourts: usableCourts,
-        doublesCourts: doublesCourts,
-        singlesCourts: singlesCourts,
+        usableCourts: fullPlan.usableCourts,
+        doublesCourts: fullPlan.doublesCourts,
+        singlesCourts: fullPlan.singlesCourts,
         rounds: rounds,
-        restPerRound: restPerRound,
+        restPerRound: fullPlan.rest,
+        groupRounds: groupRounds,
+        mixedRounds: rounds - groupRounds,
+        hasGroups: !!groupsIn,
         minGames: Math.min.apply(null, gameCounts),
         maxGames: Math.max.apply(null, gameCounts),
       },
@@ -283,5 +379,6 @@
     generate: generate,
     roundsFromDuration: roundsFromDuration,
     COURT_SIZE: COURT_SIZE,
+    SINGLES_SIZE: SINGLES_SIZE,
   };
 });

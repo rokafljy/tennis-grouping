@@ -260,6 +260,9 @@ input:focus { outline: 2px solid var(--accent); outline-offset: 0; }
   user-select: none;
   letter-spacing: -0.374px;
 }
+/* 카드 맨 위에 오는 체크박스(레벨 구분 토글)는 위쪽 여백 대신 아래쪽 여백 */
+#use-groups-check { margin: 0 0 18px; }
+
 .check input[type="checkbox"] {
   width: 19px; height: 19px;
   accent-color: var(--accent);
@@ -390,6 +393,28 @@ input:focus { outline: 2px solid var(--accent); outline-offset: 0; }
 }
 .ctype.doubles { background: rgba(0, 113, 227, 0.14); color: var(--accent); }
 .ctype.singles { background: var(--surface-3); color: var(--text-2); }
+
+/* 그룹(A/B) 배지 — 코트 안, 그리고 라운드 단계 태그 */
+.gtag {
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: var(--r-pill);
+  letter-spacing: 0;
+}
+.gtag.a { background: rgba(0, 113, 227, 0.14); color: var(--accent); }
+.gtag.b { background: var(--surface-3); color: var(--text-2); }
+
+.phase-tag {
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+  background: rgba(0, 113, 227, 0.12);
+  color: var(--accent);
+  letter-spacing: -0.12px;
+  margin-right: 8px;
+}
 
 .match { display: flex; align-items: center; gap: 10px; }
 .team { flex: 1; display: flex; flex-direction: column; gap: 7px; }

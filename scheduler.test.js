@@ -148,6 +148,80 @@ analyze("소규모(6명/1코트)", {
   assert(res.meta.restPerRound === 2, "14명/3코트 → 휴식 2명");
 })();
 
+// ---- 레벨(A/B 그룹) 기능 ----
+
+// 20명(A10/B10), 3코트, 4라운드 중 앞 2라운드는 그룹별, 뒤 2라운드는 혼합
+(function () {
+  var players = Array.from({ length: 20 }, function (_, i) { return "P" + (i + 1); });
+  var groups = players.map(function (_, i) { return i < 10 ? "A" : "B"; });
+  var res = Scheduler.generate({ players: players, courts: 3, rounds: 4, groups: groups, groupRounds: 2 });
+
+  assert(res.meta.groupRounds === 2, "groupRounds 메타 == 2");
+  assert(res.meta.mixedRounds === 2, "mixedRounds 메타 == 2");
+  assert(res.meta.hasGroups === true, "hasGroups 메타 == true");
+
+  var nameToGroup = {};
+  players.forEach(function (p, i) { nameToGroup[p] = groups[i]; });
+
+  // 앞 2라운드: 모든 코트가 같은 그룹끼리만 (팀1+팀2 전원 동일 그룹)
+  var groupRoundsOk = res.rounds.slice(0, 2).every(function (rd) {
+    return rd.courts.every(function (ct) {
+      var all = ct.team1.concat(ct.team2);
+      var g = nameToGroup[all[0]];
+      return all.every(function (n) { return nameToGroup[n] === g; }) && ct.group === g;
+    });
+  });
+  assert(groupRoundsOk, "그룹별 라운드(1~2)는 모든 코트가 동일 그룹으로만 구성됨");
+
+  // 뒤 2라운드: 그룹 태그 없음(null) — 혼합 라운드
+  var mixedRoundsOk = res.rounds.slice(2).every(function (rd) {
+    return rd.courts.every(function (ct) { return ct.group === null; });
+  });
+  assert(mixedRoundsOk, "혼합 라운드(3~4)는 court.group이 null");
+
+  // 전체 경기 수 편차는 여전히 작아야 함 (그룹 간 인원 동일하므로 균등)
+  var spread = res.meta.maxGames - res.meta.minGames;
+  assert(spread <= 1, "그룹 기능 사용 시에도 경기 수 편차 <= 1 (실제 " + spread + ")");
+})();
+
+// 그룹 인원 비율에 맞춰 코트가 나뉘는지: A 4명, B 16명, 4코트, 1라운드(그룹별)
+(function () {
+  var players = Array.from({ length: 20 }, function (_, i) { return "P" + (i + 1); });
+  var groups = players.map(function (_, i) { return i < 4 ? "A" : "B"; });
+  var res = Scheduler.generate({ players: players, courts: 4, rounds: 1, groups: groups, groupRounds: 1 });
+  var rd = res.rounds[0];
+  var aCourts = rd.courts.filter(function (c) { return c.group === "A"; });
+  var bCourts = rd.courts.filter(function (c) { return c.group === "B"; });
+  assert(aCourts.length === 1, "A(4명)는 1코트 배정 (실제 " + aCourts.length + ")");
+  assert(bCourts.length === 3, "B(16명)는 3코트 배정 (실제 " + bCourts.length + ")");
+  var aPlayed = aCourts.reduce(function (sum, c) { return sum + c.team1.length + c.team2.length; }, 0);
+  assert(aPlayed === 4, "A그룹 4명 전원 코트 배정 (실제 " + aPlayed + "명)");
+})();
+
+// 코트가 1개뿐이면 그룹별 라운드에서 매 라운드 번갈아 배정
+(function () {
+  var players = Array.from({ length: 8 }, function (_, i) { return "P" + (i + 1); });
+  var groups = players.map(function (_, i) { return i < 4 ? "A" : "B"; });
+  var res = Scheduler.generate({ players: players, courts: 1, rounds: 4, groups: groups, groupRounds: 4 });
+  var seq = res.rounds.map(function (rd) { return rd.courts[0] && rd.courts[0].group; });
+  assert(seq[0] === "A" && seq[1] === "B" && seq[2] === "A" && seq[3] === "B",
+    "1코트일 때 그룹별 라운드가 A/B 번갈아 배정됨 (실제 " + seq.join(",") + ")");
+})();
+
+// 그룹 없이 호출하면 기존과 동일하게 동작 (하위호환)
+(function () {
+  var res = Scheduler.generate({
+    players: Array.from({ length: 12 }, function (_, i) { return "P" + (i + 1); }),
+    courts: 3, rounds: 3,
+  });
+  assert(res.meta.hasGroups === false, "그룹 미지정 시 hasGroups == false");
+  assert(res.meta.groupRounds === 0, "그룹 미지정 시 groupRounds == 0");
+  var allNullGroup = res.rounds.every(function (rd) {
+    return rd.courts.every(function (c) { return c.group === null; });
+  });
+  assert(allNullGroup, "그룹 미지정 시 모든 court.group이 null");
+})();
+
 // 최소 인원 미달 시 에러
 try {
   Scheduler.generate({ players: ["A", "B", "C"], courts: 1, rounds: 2 });
