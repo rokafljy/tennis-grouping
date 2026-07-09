@@ -222,6 +222,62 @@ analyze("소규모(6명/1코트)", {
   assert(allNullGroup, "그룹 미지정 시 모든 court.group이 null");
 })();
 
+// ---- 고정 매칭(특정 인원 파트너 강제) 기능 ----
+
+// 20명/3코트/6라운드, P1-P2를 3번은 반드시 파트너로 묶이게 요청
+(function () {
+  var players = Array.from({ length: 20 }, function (_, i) { return "P" + (i + 1); });
+  var res = Scheduler.generate({
+    players: players, courts: 3, rounds: 6,
+    forcedPairs: [{ a: 0, b: 1, count: 3 }],
+  });
+  var fp = res.meta.forcedPairs[0];
+  assert(fp.a === "P1" && fp.b === "P2", "forcedPairs 메타에 이름이 담김");
+  assert(fp.required === 3, "요청 횟수 3이 메타에 반영됨");
+  assert(fp.achieved >= 3, "P1-P2가 최소 3번 파트너로 묶임 (실제 " + fp.achieved + ")");
+
+  // 실제 라운드 데이터에서도 직접 세어 교차 검증
+  var actualPairings = 0;
+  res.rounds.forEach(function (rd) {
+    rd.courts.forEach(function (ct) {
+      [ct.team1, ct.team2].forEach(function (t) {
+        if (t.indexOf("P1") !== -1 && t.indexOf("P2") !== -1) actualPairings++;
+      });
+    });
+  });
+  assert(actualPairings >= 3, "라운드 데이터 상에서도 P1-P2가 3번 이상 같은 팀 (실제 " + actualPairings + ")");
+
+  // 전체 공정성(경기 수 편차)이 크게 깨지지 않는지 확인
+  var spread = res.meta.maxGames - res.meta.minGames;
+  assert(spread <= 2, "고정 매칭 사용 시에도 경기 수 편차가 과도하지 않음 (실제 " + spread + ")");
+})();
+
+// 여러 개의 고정 매칭을 동시에 요청해도 각각 달성되는지
+(function () {
+  var players = Array.from({ length: 16 }, function (_, i) { return "P" + (i + 1); });
+  var res = Scheduler.generate({
+    players: players, courts: 4, rounds: 5,
+    forcedPairs: [
+      { a: 0, b: 1, count: 2 },
+      { a: 2, b: 3, count: 2 },
+    ],
+  });
+  res.meta.forcedPairs.forEach(function (fp) {
+    assert(fp.achieved >= fp.required,
+      fp.a + "-" + fp.b + " 요청 " + fp.required + "회 달성 (실제 " + fp.achieved + ")");
+  });
+})();
+
+// forcedPairs 미지정 시 하위호환 (meta.forcedPairs는 빈 배열)
+(function () {
+  var res = Scheduler.generate({
+    players: Array.from({ length: 8 }, function (_, i) { return "P" + (i + 1); }),
+    courts: 2, rounds: 3,
+  });
+  assert(Array.isArray(res.meta.forcedPairs) && res.meta.forcedPairs.length === 0,
+    "forcedPairs 미지정 시 meta.forcedPairs가 빈 배열");
+})();
+
 // 최소 인원 미달 시 에러
 try {
   Scheduler.generate({ players: ["A", "B", "C"], courts: 1, rounds: 2 });

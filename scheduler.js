@@ -107,6 +107,10 @@
    * @param {number}   [opts.seed]   난수 시드 (같은 값이면 결과 동일)
    * @param {("A"|"B"|null)[]} [opts.groups] 참석자별 그룹 (players와 같은 길이)
    * @param {number}   [opts.groupRounds] 그룹별로만 진행할 앞쪽 라운드 수 (기본 0)
+   * @param {{a: number, b: number, count: number}[]} [opts.forcedPairs]
+   *   반드시 파트너로 묶어야 하는 인원 쌍(인덱스)과 최소 횟수. 요청 횟수를
+   *   채울 때까지 배정 비용에 강한 보너스를 줘서 우선 배정되게 하고,
+   *   채운 뒤에는 일반 파트너 다양성 규칙으로 되돌아간다.
    * @param {number}   [opts.partnerWeight]  파트너 반복 가중치 (기본 3)
    * @param {number}   [opts.opponentWeight] 상대 반복 가중치 (기본 1)
    * @returns {{rounds: Array, summary: Array, meta: Object}}
@@ -120,6 +124,8 @@
     var wPartner = opts.partnerWeight != null ? opts.partnerWeight : 3;
     var wOpp = opts.opponentWeight != null ? opts.opponentWeight : 1;
     var wSingles = 2; // 단식 배정 반복 억제 가중치
+    var FORCED_BONUS = 300; // 고정 매칭 미달성 시 비용 보너스(음수) 크기
+    var REST_PRIORITY_BONUS = 1000; // 고정 매칭 미달성 인원을 휴식에서 제외시키는 가중치
 
     var N = names.length;
     if (N < COURT_SIZE) {
@@ -146,6 +152,35 @@
     }
     function opponentCount(i, j) {
       return opponent[key(i, j)] || 0;
+    }
+
+    // 고정 매칭(반드시 파트너로 묶일 쌍) 설정
+    var forcedPairs = (opts.forcedPairs || [])
+      .map(function (fp) {
+        return { a: fp.a | 0, b: fp.b | 0, count: Math.max(1, fp.count | 0 || 1) };
+      })
+      .filter(function (fp) {
+        return fp.a !== fp.b && fp.a >= 0 && fp.b >= 0 && fp.a < N && fp.b < N;
+      });
+    var forcedMap = {}; // key(a,b) -> 요구 횟수
+    forcedPairs.forEach(function (fp) {
+      forcedMap[key(fp.a, fp.b)] = fp.count;
+    });
+
+    // 아직 요구 횟수를 못 채운 고정 매칭이면 강한 보너스(음수 비용)를 준다.
+    function forcedBonus(i, j) {
+      var required = forcedMap[key(i, j)];
+      if (!required) return 0;
+      return partnerCount(i, j) < required ? -FORCED_BONUS : 0;
+    }
+
+    // x가 아직 못 채운 고정 매칭에 걸려 있는지 — 걸려 있으면 쉬는 순번에서 밀어준다.
+    function hasUnmetForced(x) {
+      for (var i = 0; i < forcedPairs.length; i++) {
+        var fp = forcedPairs[i];
+        if ((fp.a === x || fp.b === x) && partnerCount(fp.a, fp.b) < fp.count) return true;
+      }
+      return false;
     }
 
     // 코트 배정: 랜덤 재시작 그리디로 비용이 가장 낮은 배정을 찾는다.
@@ -204,8 +239,8 @@
 
     function splitCost(t1, t2) {
       var cost = 0;
-      cost += wPartner * partnerCount(t1[0], t1[1]);
-      cost += wPartner * partnerCount(t2[0], t2[1]);
+      cost += wPartner * partnerCount(t1[0], t1[1]) + forcedBonus(t1[0], t1[1]);
+      cost += wPartner * partnerCount(t2[0], t2[1]) + forcedBonus(t2[0], t2[1]);
       for (var i = 0; i < 2; i++) {
         for (var j = 0; j < 2; j++) {
           cost += wOpp * opponentCount(t1[i], t2[j]);
@@ -225,7 +260,11 @@
 
       var order = shuffle(pool, rng); // 동점 tie-break용 무작위 섞기
       order.sort(function (a, b) {
-        if (games[b] !== games[a]) return games[b] - games[a]; // 많이 뛴 사람 먼저 휴식
+        // 고정 매칭을 아직 못 채운 사람은 경기를 적게 뛴 것처럼 취급해
+        // 휴식 순번에서 뒤로 밀어(=계속 뛰게 해) 매칭 성사 기회를 높인다.
+        var pa = games[a] - (hasUnmetForced(a) ? REST_PRIORITY_BONUS : 0);
+        var pb = games[b] - (hasUnmetForced(b) ? REST_PRIORITY_BONUS : 0);
+        if (pb !== pa) return pb - pa; // 값이 큰(=많이 뛴) 사람 먼저 휴식
         return rests[a] - rests[b]; // 적게 쉰 사람 먼저 휴식
       });
 
@@ -349,6 +388,16 @@
       return s.games;
     });
 
+    // 고정 매칭 달성 현황 (요청 횟수 대비 실제 파트너로 묶인 횟수)
+    var forcedPairResults = forcedPairs.map(function (fp) {
+      return {
+        a: names[fp.a],
+        b: names[fp.b],
+        required: fp.count,
+        achieved: partnerCount(fp.a, fp.b),
+      };
+    });
+
     return {
       rounds: resultRounds,
       summary: summary,
@@ -363,6 +412,7 @@
         groupRounds: groupRounds,
         mixedRounds: rounds - groupRounds,
         hasGroups: !!groupsIn,
+        forcedPairs: forcedPairResults,
         minGames: Math.min.apply(null, gameCounts),
         maxGames: Math.max.apply(null, gameCounts),
       },

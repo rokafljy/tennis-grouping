@@ -23,6 +23,11 @@
     manualRounds: $("manualRounds"),
     groupRoundsField: $("group-rounds-field"),
     groupRounds: $("groupRounds"),
+    useForcedPairs: $("useForcedPairs"),
+    forcedPairsField: $("forced-pairs-field"),
+    forcedPairsText: $("forcedPairsText"),
+    forcedPairsHint: $("forced-pairs-hint"),
+    forcedPairsResult: $("forced-pairs-result"),
     planHint: $("plan-hint"),
     generate: $("generate"),
     reshuffle: $("reshuffle"),
@@ -71,6 +76,36 @@
       };
     }
     return { names: parsePlayersRaw(el.players.value), groups: null };
+  }
+
+  // "이름1, 이름2, 횟수" 줄들을 파싱해 참석자 목록(names) 기준 인덱스 쌍으로 변환.
+  // 이름을 찾지 못하거나 같은 사람을 지정한 줄은 errors에 담고 건너뛴다.
+  function resolveForcedPairs(text, names) {
+    var lines = (text || "")
+      .split("\n")
+      .map(function (s) { return s.trim(); })
+      .filter(function (s) { return s.length > 0; });
+
+    var pairs = [];
+    var errors = [];
+    lines.forEach(function (line) {
+      var parts = line.split(",").map(function (s) { return s.trim(); }).filter(function (s) { return s.length > 0; });
+      if (parts.length < 2) {
+        errors.push("'" + line + "' → 이름 2개가 필요해요");
+        return;
+      }
+      var nameA = parts[0];
+      var nameB = parts[1];
+      var count = parseInt(parts[2], 10);
+      if (!count || count < 1) count = 1;
+      var idxA = names.indexOf(nameA);
+      var idxB = names.indexOf(nameB);
+      if (idxA === -1) { errors.push(nameA + "님을 참석자 명단에서 찾을 수 없어요"); return; }
+      if (idxB === -1) { errors.push(nameB + "님을 참석자 명단에서 찾을 수 없어요"); return; }
+      if (idxA === idxB) { errors.push(nameA + "는 같은 사람과 매칭할 수 없어요"); return; }
+      pairs.push({ a: idxA, b: idxB, count: count });
+    });
+    return { pairs: pairs, errors: errors };
   }
 
   // "HH:MM" → 분(0~1439). 파싱 실패 시 null
@@ -168,6 +203,20 @@
       msg += " · 경기 시간이 모임 시간을 초과해요";
     }
     el.planHint.textContent = msg;
+
+    if (el.useForcedPairs.checked) {
+      var resolved = resolveForcedPairs(el.forcedPairsText.value, players);
+      if (resolved.errors.length) {
+        el.forcedPairsHint.textContent = resolved.errors[0] +
+          (resolved.errors.length > 1 ? " 외 " + (resolved.errors.length - 1) + "건" : "");
+      } else if (resolved.pairs.length) {
+        el.forcedPairsHint.textContent =
+          resolved.pairs.length + "쌍 지정됨 · 요청한 횟수만큼 반드시 같은 팀으로 배정돼요.";
+      } else {
+        el.forcedPairsHint.textContent = "지정한 쌍은 요청한 횟수만큼 반드시 같은 팀(파트너)으로 배정돼요.";
+      }
+    }
+
     persist();
   }
 
@@ -214,6 +263,8 @@
           playersB: el.playersB.value,
           useGroups: el.useGroups.checked,
           groupRounds: el.groupRounds.value,
+          useForcedPairs: el.useForcedPairs.checked,
+          forcedPairsText: el.forcedPairsText.value,
           courts: el.courts.value,
           gameMinutes: el.gameMinutes.value,
           rounds: el.rounds.value,
@@ -235,6 +286,8 @@
       if (d.playersB != null) el.playersB.value = d.playersB;
       if (d.useGroups != null) el.useGroups.checked = d.useGroups;
       if (d.groupRounds != null) el.groupRounds.value = d.groupRounds;
+      if (d.useForcedPairs != null) el.useForcedPairs.checked = d.useForcedPairs;
+      if (d.forcedPairsText != null) el.forcedPairsText.value = d.forcedPairsText;
       if (d.courts != null) el.courts.value = d.courts;
       if (d.gameMinutes != null) el.gameMinutes.value = d.gameMinutes;
       if (d.rounds != null) el.rounds.value = d.rounds;
@@ -254,6 +307,10 @@
     el.singlePlayersWrap.hidden = on;
     el.groupPlayersWrap.hidden = !on;
     el.groupRoundsField.hidden = !on;
+  }
+
+  function syncForcedPairsUI() {
+    el.forcedPairsField.hidden = !el.useForcedPairs.checked;
   }
 
   // ---- 대진표 생성 ----
@@ -301,6 +358,11 @@
       opts.groups = groups;
       opts.groupRounds = Math.min(rounds, parseInt(el.groupRounds.value, 10) || 0);
     }
+    if (el.useForcedPairs.checked) {
+      // 고정 매칭 이름은 중복 접미사(예: "(2)") 붙기 전 원본 명단 기준으로 지정하므로,
+      // dedup 전 이름 목록(roster.names)을 기준으로 인덱스를 찾는다.
+      opts.forcedPairs = resolveForcedPairs(el.forcedPairsText.value, roster.names).pairs;
+    }
 
     var res;
     try {
@@ -337,6 +399,25 @@
     el.resultMeta.textContent =
       m.players + "명 · " + courtLayoutText(m) + " · " + roundsText + " · 1인당 " +
       balance + (m.restPerRound > 0 ? " · 라운드당 " + m.restPerRound + "명 휴식" : "");
+
+    if (m.forcedPairs && m.forcedPairs.length) {
+      el.forcedPairsResult.hidden = false;
+      el.forcedPairsResult.innerHTML = m.forcedPairs
+        .map(function (fp) {
+          var ok = fp.achieved >= fp.required;
+          return (
+            '<div class="psum ' + (ok ? "ok" : "warn") + '">' +
+            esc(fp.a) + " + " + esc(fp.b) + " " +
+            '<span class="status">' + fp.achieved + "/" + fp.required + "</span>" +
+            (ok ? "" : " (부족)") +
+            "</div>"
+          );
+        })
+        .join("");
+    } else {
+      el.forcedPairsResult.hidden = true;
+      el.forcedPairsResult.innerHTML = "";
+    }
 
     el.roundsBox.innerHTML = "";
     res.rounds.forEach(function (rd, idx) {
@@ -446,6 +527,11 @@
     lines.push("· 경기 수: " + res.summary
       .map(function (s) { return s.name + " " + s.games; })
       .join(", "));
+    if (res.meta.forcedPairs && res.meta.forcedPairs.length) {
+      lines.push("· 고정 매칭: " + res.meta.forcedPairs
+        .map(function (fp) { return fp.a + "+" + fp.b + " " + fp.achieved + "/" + fp.required; })
+        .join(", "));
+    }
     return lines.join("\n");
   }
 
@@ -515,15 +601,22 @@
     restore();
     syncManualUI();
     syncGroupsUI();
+    syncForcedPairsUI();
     document.querySelectorAll(".stepper").forEach(bindStepper);
 
     // 참석자 이름은 타이핑 중 잦은 갱신이므로 힌트만
     el.players.addEventListener("input", updateHints);
     el.playersA.addEventListener("input", updateHints);
     el.playersB.addEventListener("input", updateHints);
+    el.forcedPairsText.addEventListener("input", updateHints);
 
     el.useGroups.addEventListener("change", function () {
       syncGroupsUI();
+      onSettingChange();
+    });
+
+    el.useForcedPairs.addEventListener("change", function () {
+      syncForcedPairsUI();
       onSettingChange();
     });
 
