@@ -59,13 +59,17 @@
 
           <div class="field">
             <span class="field-label">모임 시간</span>
-            <div class="chips" id="duration-chips">
-              <button type="button" class="chip" data-minutes="60">1시간</button>
-              <button type="button" class="chip is-active" data-minutes="120">2시간</button>
-              <button type="button" class="chip" data-minutes="180">3시간</button>
-              <button type="button" class="chip" data-custom="1">직접 지정</button>
+            <div class="time-range">
+              <input id="startTime" type="time" value="18:00" step="300" />
+              <span class="tilde">~</span>
+              <input id="endTime" type="time" value="20:00" step="300" />
             </div>
           </div>
+
+          <label class="check">
+            <input type="checkbox" id="manualRounds" />
+            <span>라운드 수를 직접 정할래요</span>
+          </label>
 
           <div class="field custom-rounds" id="custom-rounds" hidden>
             <span class="field-label">라운드(경기 회차) 수</span>

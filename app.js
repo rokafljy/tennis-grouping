@@ -11,7 +11,9 @@
     gameMinutes: $("gameMinutes"),
     rounds: $("rounds"),
     customRounds: $("custom-rounds"),
-    durationChips: $("duration-chips"),
+    startTime: $("startTime"),
+    endTime: $("endTime"),
+    manualRounds: $("manualRounds"),
     planHint: $("plan-hint"),
     generate: $("generate"),
     reshuffle: $("reshuffle"),
@@ -25,9 +27,8 @@
     toast: $("toast"),
   };
 
-  var STORAGE_KEY = "tennis-grouping-v1";
+  var STORAGE_KEY = "tennis-grouping-v2";
   var state = {
-    durationMinutes: 120, // 선택된 모임 시간
     customMode: false, // 라운드 직접 지정 여부
     seed: 12345,
     last: null, // 마지막 입력(다시 섞기용)
@@ -41,12 +42,41 @@
       .filter(function (s) { return s.length > 0; });
   }
 
+  // "HH:MM" → 분(0~1439). 파싱 실패 시 null
+  function timeToMinutes(str) {
+    var m = /^(\d{1,2}):(\d{2})$/.exec(str || "");
+    if (!m) return null;
+    var h = parseInt(m[1], 10);
+    var mi = parseInt(m[2], 10);
+    if (h > 23 || mi > 59) return null;
+    return h * 60 + mi;
+  }
+
+  // 분 → "HH:MM" (24시간 넘어가면 그대로 표기, 예: 25:30)
+  function minutesToTime(total) {
+    var h = Math.floor(total / 60);
+    var m = total % 60;
+    return (h < 10 ? "0" + h : h) + ":" + (m < 10 ? "0" + m : m);
+  }
+
+  // 모임 지속 시간(분). 종료가 시작보다 빠르면 다음날로 간주.
+  function durationMinutes() {
+    var s = timeToMinutes(el.startTime.value);
+    var e = timeToMinutes(el.endTime.value);
+    if (s == null || e == null) return null;
+    var d = e - s;
+    if (d <= 0) d += 24 * 60; // 자정 넘김
+    return d;
+  }
+
   function computeRounds() {
     if (state.customMode) {
       return Math.max(1, parseInt(el.rounds.value, 10) || 1);
     }
     var gm = parseInt(el.gameMinutes.value, 10) || 30;
-    return Scheduler.roundsFromDuration(state.durationMinutes, gm);
+    var dur = durationMinutes();
+    if (dur == null) return 1;
+    return Scheduler.roundsFromDuration(dur, gm);
   }
 
   // ---- 안내 문구 갱신 ----
@@ -55,22 +85,43 @@
     el.nameCount.textContent = "(" + players.length + "명)";
 
     var courts = parseInt(el.courts.value, 10) || 1;
+    var gm = parseInt(el.gameMinutes.value, 10) || 30;
+    var dur = durationMinutes();
     var rounds = computeRounds();
     var perRound = Math.min(courts, Math.floor(players.length / 4)) * 4;
     var rest = Math.max(0, players.length - perRound);
 
-    if (players.length < 4) {
-      el.planHint.textContent = "복식 경기는 최소 4명부터 가능해요.";
+    if (dur == null) {
+      el.planHint.textContent = "시작/종료 시간을 확인해 주세요.";
+      persist();
       return;
     }
-    var msg =
-      "총 " + rounds + "라운드 · 라운드당 " + perRound + "명 경기";
+    if (players.length < 4) {
+      el.planHint.textContent =
+        "모임 " + (dur / 60).toFixed(dur % 60 ? 1 : 0) + "시간 · 복식 경기는 최소 4명부터 가능해요.";
+      persist();
+      return;
+    }
+
+    var msg = "모임 " + fmtDuration(dur) + " · 총 " + rounds + "라운드 · 라운드당 " + perRound + "명 경기";
     if (rest > 0) msg += " · " + rest + "명 휴식";
     if (perRound < courts * 4) {
       msg += " (인원이 부족해 " + Math.floor(players.length / 4) + "코트만 사용)";
     }
+    // 라운드 총 소요시간이 모임 시간을 넘는지 안내
+    if (rounds * gm > dur) {
+      msg += " ⚠️ 경기 시간이 모임 시간을 초과해요";
+    }
     el.planHint.textContent = msg;
     persist();
+  }
+
+  function fmtDuration(min) {
+    var h = Math.floor(min / 60);
+    var m = min % 60;
+    if (h && m) return h + "시간 " + m + "분";
+    if (h) return h + "시간";
+    return m + "분";
   }
 
   // ---- localStorage ----
@@ -83,7 +134,8 @@
           courts: el.courts.value,
           gameMinutes: el.gameMinutes.value,
           rounds: el.rounds.value,
-          durationMinutes: state.durationMinutes,
+          startTime: el.startTime.value,
+          endTime: el.endTime.value,
           customMode: state.customMode,
         })
       );
@@ -99,21 +151,14 @@
       if (d.courts != null) el.courts.value = d.courts;
       if (d.gameMinutes != null) el.gameMinutes.value = d.gameMinutes;
       if (d.rounds != null) el.rounds.value = d.rounds;
-      if (d.durationMinutes != null) state.durationMinutes = d.durationMinutes;
+      if (d.startTime != null) el.startTime.value = d.startTime;
+      if (d.endTime != null) el.endTime.value = d.endTime;
       if (d.customMode != null) state.customMode = d.customMode;
-      syncDurationUI();
     } catch (e) { /* ignore */ }
   }
 
-  function syncDurationUI() {
-    var chips = el.durationChips.querySelectorAll(".chip");
-    chips.forEach(function (c) {
-      var isCustom = c.hasAttribute("data-custom");
-      var active = state.customMode
-        ? isCustom
-        : !isCustom && parseInt(c.getAttribute("data-minutes"), 10) === state.durationMinutes;
-      c.classList.toggle("is-active", active);
-    });
+  function syncManualUI() {
+    el.manualRounds.checked = state.customMode;
     el.customRounds.hidden = !state.customMode;
   }
 
@@ -143,6 +188,7 @@
     var courts = parseInt(el.courts.value, 10) || 1;
     var rounds = computeRounds();
     var gameMinutes = parseInt(el.gameMinutes.value, 10) || 30;
+    var startMin = timeToMinutes(el.startTime.value);
 
     if (reshuffle) {
       state.seed = (state.seed * 1103515245 + 12345) & 0x7fffffff;
@@ -163,8 +209,8 @@
       return;
     }
 
-    state.last = { gameMinutes: gameMinutes, res: res, hadDup: dup };
-    render(res, gameMinutes);
+    state.last = { gameMinutes: gameMinutes, startMin: startMin, res: res, hadDup: dup };
+    render(res, gameMinutes, startMin);
     el.reshuffle.hidden = false;
     el.result.hidden = false;
     if (!reshuffle) {
@@ -178,7 +224,7 @@
   }
 
   // ---- 렌더링 ----
-  function render(res, gameMinutes) {
+  function render(res, gameMinutes, startMin) {
     var m = res.meta;
     var balance =
       m.minGames === m.maxGames
@@ -192,6 +238,7 @@
     res.rounds.forEach(function (rd, idx) {
       var start = idx * gameMinutes;
       var end = start + gameMinutes;
+      var timeLabel = fmtRange(start, end, startMin);
       var div = document.createElement("div");
       div.className = "round";
 
@@ -216,7 +263,7 @@
       div.innerHTML =
         '<div class="round-head">' +
         "<h3>라운드 " + rd.round + "</h3>" +
-        '<span class="time-tag">' + fmtRange(start, end) + "</span>" +
+        '<span class="time-tag">' + timeLabel + "</span>" +
         "</div>" +
         '<div class="courts">' + courtsHtml + "</div>" +
         restHtml;
@@ -245,8 +292,10 @@
       .join("");
   }
 
-  function fmtRange(startMin, endMin) {
-    return "+" + startMin + "~" + endMin + "분";
+  // 라운드 시간 표기. 시작 시각을 알면 실제 시각(18:00~18:30), 모르면 상대 분(+0~30분)
+  function fmtRange(offsetStart, offsetEnd, baseMin) {
+    if (baseMin == null) return "+" + offsetStart + "~" + offsetEnd + "분";
+    return minutesToTime(baseMin + offsetStart) + " ~ " + minutesToTime(baseMin + offsetEnd);
   }
 
   function esc(s) {
@@ -260,9 +309,10 @@
     if (!state.last) return "";
     var res = state.last.res;
     var gm = state.last.gameMinutes;
+    var base = state.last.startMin;
     var lines = ["🎾 테니스 대진표", ""];
     res.rounds.forEach(function (rd, idx) {
-      lines.push("■ 라운드 " + rd.round + " (+" + idx * gm + "~" + (idx * gm + gm) + "분)");
+      lines.push("■ 라운드 " + rd.round + " (" + fmtRange(idx * gm, idx * gm + gm, base) + ")");
       rd.courts.forEach(function (ct) {
         lines.push(
           "  코트" + ct.court + ": " +
@@ -334,23 +384,19 @@
 
   function init() {
     restore();
+    syncManualUI();
     document.querySelectorAll(".stepper").forEach(bindStepper);
 
     el.players.addEventListener("input", updateHints);
     el.courts.addEventListener("input", updateHints);
     el.gameMinutes.addEventListener("input", updateHints);
     el.rounds.addEventListener("input", updateHints);
+    el.startTime.addEventListener("input", updateHints);
+    el.endTime.addEventListener("input", updateHints);
 
-    el.durationChips.addEventListener("click", function (e) {
-      var chip = e.target.closest(".chip");
-      if (!chip) return;
-      if (chip.hasAttribute("data-custom")) {
-        state.customMode = true;
-      } else {
-        state.customMode = false;
-        state.durationMinutes = parseInt(chip.getAttribute("data-minutes"), 10);
-      }
-      syncDurationUI();
+    el.manualRounds.addEventListener("change", function () {
+      state.customMode = el.manualRounds.checked;
+      syncManualUI();
       updateHints();
     });
 

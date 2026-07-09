@@ -196,6 +196,64 @@ input:focus {
   font-weight: 700;
 }
 
+/* Time range */
+.time-range {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.time-range input[type="time"] {
+  flex: 1;
+  width: 100%;
+  background: var(--card-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 1.05rem;
+  font-family: inherit;
+  text-align: center;
+}
+.time-range input[type="time"]:focus {
+  outline: none;
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px rgba(198, 242, 78, 0.18);
+}
+.time-range .tilde {
+  color: var(--muted);
+  font-weight: 700;
+  flex: 0 0 auto;
+}
+/* 다크 테마에서 time 입력의 시계 아이콘이 보이도록 */
+@media (prefers-color-scheme: dark) {
+  .time-range input[type="time"]::-webkit-calendar-picker-indicator {
+    filter: invert(1);
+    opacity: 0.6;
+  }
+}
+:root[data-theme="dark"] .time-range input[type="time"]::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+  opacity: 0.6;
+}
+
+/* Checkbox */
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: var(--muted);
+  user-select: none;
+}
+.check input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--brand);
+  cursor: pointer;
+}
+
 .hint {
   color: var(--muted);
   font-size: 0.9rem;
