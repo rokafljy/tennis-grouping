@@ -328,6 +328,58 @@ analyze("소규모(6명/1코트)", {
     "fixedMatches 미지정 시 meta.fixedMatches가 빈 배열");
 })();
 
+// ---- 늦참/일찍 퇴장 ----
+
+// P1 늦참(1라운드 자동 휴식), P2 일찍 퇴장(마지막 라운드 자동 휴식)
+(function () {
+  var players = Array.from({ length: 16 }, function (_, i) { return "P" + (i + 1); });
+  var res = Scheduler.generate({
+    players: players, courts: 3, rounds: 4,
+    lateArrivals: [0], // P1
+    earlyLeaves: [1], // P2
+  });
+
+  assert(res.meta.lateArrivals[0] === "P1", "meta.lateArrivals에 P1 반영");
+  assert(res.meta.earlyLeaves[0] === "P2", "meta.earlyLeaves에 P2 반영");
+
+  var rd1 = res.rounds[0];
+  var rdLast = res.rounds[res.rounds.length - 1];
+  assert(rd1.resting.indexOf("P1") !== -1, "1라운드 휴식 명단에 P1(늦참) 포함");
+  assert(rdLast.resting.indexOf("P2") !== -1, "마지막 라운드 휴식 명단에 P2(일찍 퇴장) 포함");
+
+  // P1은 1라운드에 어느 코트에도 나오지 않아야 함
+  var p1InRound1 = rd1.courts.some(function (ct) {
+    return ct.team1.indexOf("P1") !== -1 || ct.team2.indexOf("P1") !== -1;
+  });
+  assert(!p1InRound1, "P1은 1라운드 어느 코트에도 배정되지 않음");
+
+  // P2는 마지막 라운드에 어느 코트에도 나오지 않아야 함
+  var p2InLast = rdLast.courts.some(function (ct) {
+    return ct.team1.indexOf("P2") !== -1 || ct.team2.indexOf("P2") !== -1;
+  });
+  assert(!p2InLast, "P2는 마지막 라운드 어느 코트에도 배정되지 않음");
+
+  // P1은 2~4라운드 중에는 정상적으로 뛸 수 있어야 함(최소 1번 이상 코트에 등장)
+  var p1PlayedLater = res.rounds.slice(1).some(function (rd) {
+    return rd.courts.some(function (ct) {
+      return ct.team1.indexOf("P1") !== -1 || ct.team2.indexOf("P1") !== -1;
+    });
+  });
+  assert(p1PlayedLater, "P1은 이후 라운드에서 정상적으로 경기함");
+})();
+
+// lateArrivals/earlyLeaves 미지정 시 하위호환
+(function () {
+  var res = Scheduler.generate({
+    players: Array.from({ length: 8 }, function (_, i) { return "P" + (i + 1); }),
+    courts: 2, rounds: 3,
+  });
+  assert(Array.isArray(res.meta.lateArrivals) && res.meta.lateArrivals.length === 0,
+    "lateArrivals 미지정 시 빈 배열");
+  assert(Array.isArray(res.meta.earlyLeaves) && res.meta.earlyLeaves.length === 0,
+    "earlyLeaves 미지정 시 빈 배열");
+})();
+
 // 최소 인원 미달 시 에러
 try {
   Scheduler.generate({ players: ["A", "B", "C"], courts: 1, rounds: 2 });

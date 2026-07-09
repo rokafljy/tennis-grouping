@@ -115,6 +115,8 @@
    *   대진 자체를 그대로 고정할 매치 목록(인덱스). 앞쪽 라운드부터 순서대로
    *   코트를 하나씩 예약해 이 대진 그대로 배정하고, 같은 라운드의 나머지
    *   코트·인원은 자동으로 채운다. 코트가 부족하면 다음 라운드로 넘어간다.
+   * @param {number[]} [opts.lateArrivals] 늦참 인원(인덱스) — 첫 라운드는 자동 휴식
+   * @param {number[]} [opts.earlyLeaves]  일찍 퇴장 인원(인덱스) — 마지막 라운드는 자동 휴식
    * @param {number}   [opts.partnerWeight]  파트너 반복 가중치 (기본 3)
    * @param {number}   [opts.opponentWeight] 상대 반복 가중치 (기본 1)
    * @returns {{rounds: Array, summary: Array, meta: Object}}
@@ -209,6 +211,18 @@
       return { team1: fm.team1, team2: fm.team2, round: null };
     });
     var fixedQueuePos = 0;
+
+    // 늦참/일찍 퇴장 — 늦참은 첫 라운드, 일찍 퇴장은 마지막 라운드에서 자동 휴식
+    var lateSet = {};
+    (opts.lateArrivals || []).forEach(function (x) {
+      x = x | 0;
+      if (x >= 0 && x < N) lateSet[x] = true;
+    });
+    var earlySet = {};
+    (opts.earlyLeaves || []).forEach(function (x) {
+      x = x | 0;
+      if (x >= 0 && x < N) earlySet[x] = true;
+    });
 
     // 코트 배정: 랜덤 재시작 그리디로 비용이 가장 낮은 배정을 찾는다.
     // sizes: 각 코트 인원 목록 (예: [4,4,4,2] → 복식 3 + 단식 1)
@@ -360,13 +374,22 @@
     for (var p0 = 0; p0 < N; p0++) allIndices.push(p0);
 
     for (var r = 0; r < rounds; r++) {
+      // ---- -1) 늦참/일찍 퇴장: 첫/마지막 라운드에서 자동 휴식 처리 ----
+      var excludedSet = {};
+      if (r === 0) {
+        for (var la in lateSet) excludedSet[la] = true;
+      }
+      if (r === rounds - 1) {
+        for (var el2 in earlySet) excludedSet[el2] = true;
+      }
+
       // ---- 0) 대진 고정: 이번 라운드에 배정할 수 있는 만큼 코트를 예약 ----
       var reservedCourts = [];
       var reservedSet = {};
       while (fixedQueuePos < fixedMatchQueue.length && reservedCourts.length < courts) {
         var fm = fixedMatchQueue[fixedQueuePos];
         var four = fm.team1.concat(fm.team2);
-        if (four.some(function (x) { return reservedSet[x]; })) break; // 이번 라운드에 이미 나온 사람과 겹침
+        if (four.some(function (x) { return reservedSet[x] || excludedSet[x]; })) break; // 이미 배정됐거나 늦참/조퇴로 이번 라운드 불참
         reservedCourts.push({ type: "doubles", team1: fm.team1, team2: fm.team2, group: null });
         four.forEach(function (x) { reservedSet[x] = true; });
         fixedMatchResults[fixedQueuePos].round = r + 1;
@@ -384,13 +407,19 @@
       });
       var availableCourts = courts - reservedCourts.length;
 
+      // 늦참/조퇴로 이번 라운드에 못 뛰는 인원(대진 고정에 이미 걸린 사람 제외) — 휴식으로 집계
+      var excludedIdx = Object.keys(excludedSet)
+        .map(Number)
+        .filter(function (x) { return !reservedSet[x]; });
+      excludedIdx.forEach(function (x) { rests[x] += 1; });
+
       if (groupsIn && r < groupRounds) {
         // ---- 그룹별 라운드: A는 A끼리, B는 B끼리, 코트는 인원 비율로 분배 ----
         var poolA = [];
         var poolB = [];
         var poolOther = []; // 그룹 미지정 인원(그룹 라운드 동안은 휴식)
         for (var i = 0; i < N; i++) {
-          if (reservedSet[i]) continue; // 이미 대진 고정으로 배정됨
+          if (reservedSet[i] || excludedSet[i]) continue; // 이미 대진 고정으로 배정됐거나 늦참/조퇴
           if (groupsIn[i] === "A") poolA.push(i);
           else if (groupsIn[i] === "B") poolB.push(i);
           else poolOther.push(i);
@@ -405,14 +434,16 @@
         var courtsRaw = reservedCourts
           .concat(rA.courts.map(function (c) { return assign({}, c, { group: "A" }); }))
           .concat(rB.courts.map(function (c) { return assign({}, c, { group: "B" }); }));
-        var restingIdx = rA.resting.concat(rB.resting, poolOther);
+        var restingIdx = rA.resting.concat(rB.resting, poolOther, excludedIdx);
 
         resultRounds.push(finalizeRound(r + 1, courtsRaw, restingIdx));
       } else {
         // ---- 혼합 라운드: 그룹 구분 없이 전체 인원 대상 ----
-        var pool = allIndices.filter(function (x) { return !reservedSet[x]; });
+        var pool = allIndices.filter(function (x) { return !reservedSet[x] && !excludedSet[x]; });
         var rAll = runRoundForPool(pool, availableCourts);
-        resultRounds.push(finalizeRound(r + 1, reservedCourts.concat(rAll.courts), rAll.resting));
+        resultRounds.push(
+          finalizeRound(r + 1, reservedCourts.concat(rAll.courts), rAll.resting.concat(excludedIdx))
+        );
       }
     }
 
@@ -474,6 +505,8 @@
         hasGroups: !!groupsIn,
         forcedPairs: forcedPairResults,
         fixedMatches: fixedMatchReport,
+        lateArrivals: Object.keys(lateSet).map(Number).map(nameOf),
+        earlyLeaves: Object.keys(earlySet).map(Number).map(nameOf),
         minGames: Math.min.apply(null, gameCounts),
         maxGames: Math.max.apply(null, gameCounts),
       },

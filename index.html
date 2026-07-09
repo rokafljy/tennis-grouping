@@ -13,7 +13,7 @@
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230071e3' stroke-width='2'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M5.6 5.6a9 9 0 0 0 0 12.8'/%3E%3Cpath d='M18.4 5.6a9 9 0 0 1 0 12.8'/%3E%3C/svg%3E"
     />
-    <link rel="stylesheet" href="styles.css?v=8" />
+    <link rel="stylesheet" href="styles.css?v=9" />
   </head>
   <body>
     <div class="app">
@@ -160,6 +160,33 @@
             </p>
           </div>
 
+          <label class="check">
+            <input type="checkbox" id="useLateEarly" />
+            <span>늦참/조퇴하는 사람이 있어요</span>
+          </label>
+
+          <div id="late-early-field" hidden>
+            <label class="field">
+              <span class="field-label">늦참 (첫 게임 자동 제외)</span>
+              <textarea
+                id="lateArrivalsText"
+                rows="2"
+                placeholder="한 줄에 한 명씩, 또는 쉼표로 구분&#10;예) 이재용"
+              ></textarea>
+            </label>
+            <label class="field">
+              <span class="field-label">조퇴 (마지막 게임 자동 제외)</span>
+              <textarea
+                id="earlyLeavesText"
+                rows="2"
+                placeholder="예) 손일석"
+              ></textarea>
+            </label>
+            <p class="hint" id="late-early-hint">
+              늦참은 첫 게임, 조퇴는 마지막 게임에서 자동으로 빠지고 나머지는 그대로 배정돼요.
+            </p>
+          </div>
+
           <p class="hint" id="plan-hint"></p>
         </section>
 
@@ -200,6 +227,7 @@
             <p class="meta" id="result-meta"></p>
             <div id="forced-pairs-result" class="player-summary" hidden></div>
             <div id="fixed-matches-result" class="player-summary" hidden></div>
+            <div id="late-early-result" class="player-summary" hidden></div>
           </div>
 
           <h2 class="section-title"><span class="step-no">4</span> 라운드</h2>
@@ -219,7 +247,7 @@
 
     <div class="toast" id="toast" hidden></div>
 
-    <script src="scheduler.js?v=8"></script>
-    <script src="app.js?v=8"></script>
+    <script src="scheduler.js?v=9"></script>
+    <script src="app.js?v=9"></script>
   </body>
 </html>

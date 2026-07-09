@@ -507,13 +507,15 @@ input:focus { outline: 2px solid var(--accent); outline-offset: 0; }
 .psum .g { color: var(--accent); font-weight: 600; }
 .psum .r { color: var(--text-3); font-size: 0.82rem; }
 
-/* 고정 매칭 달성 현황 배지 */
-#forced-pairs-result { margin: 14px 0 0; }
+/* 고정 매칭 달성 현황 / 늦참·조퇴 안내 배지 */
+#forced-pairs-result, #fixed-matches-result, #late-early-result { margin: 14px 0 0; }
 .psum.ok { box-shadow: inset 3px 0 0 var(--accent); }
 .psum.warn { box-shadow: inset 3px 0 0 #d70015; }
+.psum.info { box-shadow: inset 3px 0 0 var(--text-3); }
 .psum .status { font-weight: 600; }
 .psum.ok .status { color: var(--accent); }
 .psum.warn .status { color: #d70015; }
+.psum.info .status { color: var(--text-3); }
 
 .footer {
   text-align: center;

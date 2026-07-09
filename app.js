@@ -35,6 +35,12 @@
     addFixedMatchBtn: $("add-fixed-match"),
     fixedMatchesHint: $("fixed-matches-hint"),
     fixedMatchesResult: $("fixed-matches-result"),
+    useLateEarly: $("useLateEarly"),
+    lateEarlyField: $("late-early-field"),
+    lateArrivalsText: $("lateArrivalsText"),
+    earlyLeavesText: $("earlyLeavesText"),
+    lateEarlyHint: $("late-early-hint"),
+    lateEarlyResult: $("late-early-result"),
     planHint: $("plan-hint"),
     generate: $("generate"),
     reshuffle: $("reshuffle"),
@@ -220,6 +226,19 @@
     return { matches: matches, errors: errors };
   }
 
+  // 늦참/조퇴 명단 텍스트를 참석자 목록(names) 기준 인덱스로 변환.
+  function resolveNameList(text, names) {
+    var list = parsePlayersRaw(text);
+    var idxs = [];
+    var errors = [];
+    list.forEach(function (n) {
+      var idx = names.indexOf(n);
+      if (idx === -1) { errors.push(n + "님을 참석자 명단에서 찾을 수 없어요"); return; }
+      idxs.push(idx);
+    });
+    return { idxs: idxs, errors: errors };
+  }
+
   // "HH:MM" → 분(0~1439). 파싱 실패 시 null
   function timeToMinutes(str) {
     var m = /^(\d{1,2}):(\d{2})$/.exec(str || "");
@@ -342,6 +361,21 @@
       }
     }
 
+    if (el.useLateEarly.checked) {
+      var late = resolveNameList(el.lateArrivalsText.value, players);
+      var early = resolveNameList(el.earlyLeavesText.value, players);
+      var leErrors = late.errors.concat(early.errors);
+      if (leErrors.length) {
+        el.lateEarlyHint.textContent = leErrors[0] +
+          (leErrors.length > 1 ? " 외 " + (leErrors.length - 1) + "건" : "");
+      } else if (late.idxs.length || early.idxs.length) {
+        el.lateEarlyHint.textContent =
+          "늦참 " + late.idxs.length + "명 · 조퇴 " + early.idxs.length + "명 지정됨.";
+      } else {
+        el.lateEarlyHint.textContent = "늦참은 첫 게임, 조퇴는 마지막 게임에서 자동으로 빠지고 나머지는 그대로 배정돼요.";
+      }
+    }
+
     persist();
   }
 
@@ -392,6 +426,9 @@
           forcedPairRows: readForcedPairRows(),
           useFixedMatches: el.useFixedMatches.checked,
           fixedMatchRows: readFixedMatchRows(),
+          useLateEarly: el.useLateEarly.checked,
+          lateArrivalsText: el.lateArrivalsText.value,
+          earlyLeavesText: el.earlyLeavesText.value,
           courts: el.courts.value,
           gameMinutes: el.gameMinutes.value,
           rounds: el.rounds.value,
@@ -421,6 +458,9 @@
       if (Array.isArray(d.fixedMatchRows)) {
         d.fixedMatchRows.forEach(function (r) { addFixedMatchRow(r); });
       }
+      if (d.useLateEarly != null) el.useLateEarly.checked = d.useLateEarly;
+      if (d.lateArrivalsText != null) el.lateArrivalsText.value = d.lateArrivalsText;
+      if (d.earlyLeavesText != null) el.earlyLeavesText.value = d.earlyLeavesText;
       if (d.courts != null) el.courts.value = d.courts;
       if (d.gameMinutes != null) el.gameMinutes.value = d.gameMinutes;
       if (d.rounds != null) el.rounds.value = d.rounds;
@@ -452,6 +492,10 @@
     var on = el.useFixedMatches.checked;
     el.fixedMatchesField.hidden = !on;
     if (on && el.fixedMatchesRows.children.length === 0) addFixedMatchRow();
+  }
+
+  function syncLateEarlyUI() {
+    el.lateEarlyField.hidden = !el.useLateEarly.checked;
   }
 
   // ---- 대진표 생성 ----
@@ -506,6 +550,10 @@
     }
     if (el.useFixedMatches.checked) {
       opts.fixedMatches = resolveFixedMatches(readFixedMatchRows(), roster.names).matches;
+    }
+    if (el.useLateEarly.checked) {
+      opts.lateArrivals = resolveNameList(el.lateArrivalsText.value, roster.names).idxs;
+      opts.earlyLeaves = resolveNameList(el.earlyLeavesText.value, roster.names).idxs;
     }
 
     var res;
@@ -581,11 +629,31 @@
       el.fixedMatchesResult.innerHTML = "";
     }
 
+    if ((m.lateArrivals && m.lateArrivals.length) || (m.earlyLeaves && m.earlyLeaves.length)) {
+      el.lateEarlyResult.hidden = false;
+      el.lateEarlyResult.innerHTML =
+        m.lateArrivals
+          .map(function (n) {
+            return '<div class="psum info">' + esc(n) + ' <span class="status">늦참</span></div>';
+          })
+          .join("") +
+        m.earlyLeaves
+          .map(function (n) {
+            return '<div class="psum info">' + esc(n) + ' <span class="status">조퇴</span></div>';
+          })
+          .join("");
+    } else {
+      el.lateEarlyResult.hidden = true;
+      el.lateEarlyResult.innerHTML = "";
+    }
+
     el.roundsBox.innerHTML = "";
     res.rounds.forEach(function (rd, idx) {
       var start = idx * gameMinutes;
       var end = start + gameMinutes;
       var timeLabel = fmtRange(start, end, startMin);
+      var isFirstRound = idx === 0;
+      var isLastRound = idx === res.rounds.length - 1;
       var div = document.createElement("div");
       div.className = "round";
 
@@ -611,7 +679,14 @@
         .join("");
 
       var restHtml = rd.resting.length
-        ? '<div class="resting">' + MOON_SVG + "휴식: <b>" + rd.resting.map(esc).join(", ") + "</b></div>"
+        ? '<div class="resting">' + MOON_SVG + "휴식: <b>" + rd.resting
+            .map(function (n) {
+              var tag = "";
+              if (isFirstRound && m.lateArrivals && m.lateArrivals.indexOf(n) !== -1) tag = " (늦참)";
+              else if (isLastRound && m.earlyLeaves && m.earlyLeaves.indexOf(n) !== -1) tag = " (조퇴)";
+              return esc(n) + tag;
+            })
+            .join(", ") + "</b></div>"
         : "";
 
       // 이 라운드가 그룹별(레벨전)인지 여부 — 코트가 하나라도 group 태그를 갖고 있으면 그룹별 라운드
@@ -683,7 +758,15 @@
             ct.team1.join(" · ") + "  vs  " + ct.team2.join(" · ")
         );
       });
-      if (rd.resting.length) lines.push("  휴식: " + rd.resting.join(", "));
+      if (rd.resting.length) {
+        var isFirst = idx === 0;
+        var isLast = idx === res.rounds.length - 1;
+        lines.push("  휴식: " + rd.resting.map(function (n) {
+          if (isFirst && res.meta.lateArrivals && res.meta.lateArrivals.indexOf(n) !== -1) return n + "(늦참)";
+          if (isLast && res.meta.earlyLeaves && res.meta.earlyLeaves.indexOf(n) !== -1) return n + "(조퇴)";
+          return n;
+        }).join(", "));
+      }
       lines.push("");
     });
     lines.push("· 경기 수: " + res.summary
@@ -701,6 +784,13 @@
             (fm.round != null ? " (" + fm.round + "라운드)" : " (배정 못 함)");
         })
         .join(", "));
+    }
+    if ((res.meta.lateArrivals && res.meta.lateArrivals.length) ||
+        (res.meta.earlyLeaves && res.meta.earlyLeaves.length)) {
+      var leParts = [];
+      if (res.meta.lateArrivals.length) leParts.push("늦참 " + res.meta.lateArrivals.join(", "));
+      if (res.meta.earlyLeaves.length) leParts.push("조퇴 " + res.meta.earlyLeaves.join(", "));
+      lines.push("· " + leParts.join(" / "));
     }
     return lines.join("\n");
   }
@@ -773,6 +863,7 @@
     syncGroupsUI();
     syncForcedPairsUI();
     syncFixedMatchesUI();
+    syncLateEarlyUI();
     document.querySelectorAll(".stepper").forEach(bindStepper);
 
     // 참석자 이름은 타이핑 중 잦은 갱신이므로 힌트만
@@ -802,6 +893,13 @@
       addFixedMatchRow();
       updateHints();
     });
+
+    el.useLateEarly.addEventListener("change", function () {
+      syncLateEarlyUI();
+      onSettingChange();
+    });
+    el.lateArrivalsText.addEventListener("input", updateHints);
+    el.earlyLeavesText.addEventListener("input", updateHints);
 
     // 경기 세팅 변경은 결과가 있으면 즉시 재적용
     el.courts.addEventListener("input", onSettingChange);
