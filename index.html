@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="테니스 정기모임 복식 대진표 자동 생성기 — 참석자 이름만 넣으면 코트별로 골고루 배정해 줍니다."
+    />
+    <title>🎾 테니스 복식 대진표 만들기</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8E%BE%3C/text%3E%3C/svg%3E"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="hero">
+        <h1>🎾 테니스 복식 대진표</h1>
+        <p class="subtitle">
+          참석자 이름만 넣으면 코트별로 <strong>골고루</strong> 게임을 배정해 드려요.
+        </p>
+      </header>
+
+      <main>
+        <!-- 입력 -->
+        <section class="card" id="input-card">
+          <h2>1. 참석자 입력</h2>
+
+          <label class="field">
+            <span class="field-label">참석자 이름 <em id="name-count">(0명)</em></span>
+            <textarea
+              id="players"
+              rows="6"
+              placeholder="한 줄에 한 명씩, 또는 쉼표로 구분해서 입력하세요.&#10;예)&#10;김테니&#10;이라켓&#10;박발리&#10;최스핀"
+            ></textarea>
+          </label>
+
+          <div class="grid">
+            <label class="field">
+              <span class="field-label">코트 수</span>
+              <div class="stepper" data-target="courts">
+                <button type="button" class="step" data-delta="-1" aria-label="코트 줄이기">−</button>
+                <input id="courts" type="number" min="1" max="10" value="3" inputmode="numeric" />
+                <button type="button" class="step" data-delta="1" aria-label="코트 늘리기">+</button>
+              </div>
+            </label>
+
+            <label class="field">
+              <span class="field-label">한 경기 시간(분)</span>
+              <div class="stepper" data-target="gameMinutes">
+                <button type="button" class="step" data-delta="-5" aria-label="경기 시간 줄이기">−</button>
+                <input id="gameMinutes" type="number" min="10" max="60" step="5" value="30" inputmode="numeric" />
+                <button type="button" class="step" data-delta="5" aria-label="경기 시간 늘리기">+</button>
+              </div>
+            </label>
+          </div>
+
+          <div class="field">
+            <span class="field-label">모임 시간</span>
+            <div class="chips" id="duration-chips">
+              <button type="button" class="chip" data-minutes="60">1시간</button>
+              <button type="button" class="chip is-active" data-minutes="120">2시간</button>
+              <button type="button" class="chip" data-minutes="180">3시간</button>
+              <button type="button" class="chip" data-custom="1">직접 지정</button>
+            </div>
+          </div>
+
+          <div class="field custom-rounds" id="custom-rounds" hidden>
+            <span class="field-label">라운드(경기 회차) 수</span>
+            <div class="stepper" data-target="rounds">
+              <button type="button" class="step" data-delta="-1">−</button>
+              <input id="rounds" type="number" min="1" max="30" value="4" inputmode="numeric" />
+              <button type="button" class="step" data-delta="1">+</button>
+            </div>
+          </div>
+
+          <p class="hint" id="plan-hint"></p>
+
+          <div class="actions">
+            <button type="button" id="generate" class="btn btn-primary">대진표 만들기</button>
+            <button type="button" id="reshuffle" class="btn btn-ghost" hidden>🔀 다시 섞기</button>
+          </div>
+          <p class="error" id="error" hidden></p>
+        </section>
+
+        <!-- 결과 -->
+        <section id="result" hidden>
+          <div class="card summary-card">
+            <div class="summary-head">
+              <h2>대진표</h2>
+              <div class="summary-actions">
+                <button type="button" id="copy" class="btn btn-small">📋 복사</button>
+                <button type="button" id="print" class="btn btn-small">🖨️ 인쇄</button>
+              </div>
+            </div>
+            <p class="meta" id="result-meta"></p>
+          </div>
+
+          <div id="rounds-list"></div>
+
+          <div class="card">
+            <h3>참석자별 경기 수</h3>
+            <div id="player-summary" class="player-summary"></div>
+          </div>
+        </section>
+      </main>
+
+      <footer class="footer">
+        <p>모든 계산은 이 브라우저 안에서만 이루어집니다 · 데이터는 저장/전송되지 않아요.</p>
+      </footer>
+    </div>
+
+    <div class="toast" id="toast" hidden></div>
+
+    <script src="scheduler.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
